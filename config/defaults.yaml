@@ -1,0 +1,121 @@
+# Seed settings. Everything here is editable from the Settings page; once saved,
+# the database copy wins. Delete data/jobs.db (or use "Reset to defaults") to reseed.
+
+profile_mode: both          # both | profile | cv
+
+profile_md: |
+  - BSc (Hons) Software Engineering, graduated 2026 — [university, grade]
+  - Dissertation: post-quantum cryptography — [topic, e.g. benchmarking ML-KEM / ML-DSA vs classical schemes]
+  - Languages: Python, [Java, C, TypeScript…]
+  - Building an MCP policy gateway: an authorising reverse-proxy for AI tool servers (capability tokens, per-tool rules, audit log, prompt-injection demo)
+  - Run a home lab: Home Assistant, Docker, Tailscale, Raspberry Pi, self-hosted services
+  - Interested in: security / cryptography, backend engineering, AI tooling, embedded & hardware
+  - Open to: graduate schemes, junior dev, IT support, QA/test, data, technician roles — anything hands-on with computers
+  - Based in Cardiff, happy to commute across South Wales and to Bristol; open to remote
+
+search:
+  centres:
+    - {name: Cardiff, lat: 51.4816, lon: -3.1791, radius_mi: 25}
+    - {name: Swansea, lat: 51.6214, lon: -3.9436, radius_mi: 15}
+    - {name: Bristol, lat: 51.4545, lon: -2.5879, radius_mi: 15}
+  include_remote: true
+  remote_penalty: 5
+  min_salary: 0
+  max_age_days: 21
+  queries:
+    - software engineer
+    - software developer
+    - graduate developer
+    - junior developer
+    - python developer
+    - cyber security
+    - cryptography
+    - security analyst
+    - IT support
+    - IT technician
+    - data analyst
+    - embedded software
+    - electronics engineer
+    - test engineer
+    - devops
+    - machine learning
+    - web developer
+    - network engineer
+  # Scraped boards cost Firecrawl credits per page, so they use a shorter list.
+  board_queries:
+    - graduate software
+    - junior developer
+    - IT support
+    - cyber security
+    - data analyst
+  # Brave web searches for postings the boards miss (civil service, company sites, schemes).
+  discovery_queries:
+    - graduate software engineer Cardiff
+    - junior software developer Cardiff OR Newport
+    - graduate cyber security Cardiff OR Newport OR Bristol
+    - cryptography engineer UK graduate
+    - post-quantum cryptography engineer jobs UK
+    - site:civilservicejobs.service.gov.uk digital Cardiff OR Newport
+    - site:civilservicejobs.service.gov.uk data Cardiff OR Newport OR Bristol
+    - graduate scheme technology Wales
+    - embedded software graduate Bristol OR Cardiff
+    - IT apprenticeship Cardiff
+
+filters:
+  seniority_words: [senior, lead, principal, head of, director, manager, architect, staff engineer, sr.]
+  exclude_keywords: [sales executive, recruitment consultant, commission only, field sales, teacher, nurse, driver]
+  max_years_experience: 4
+  category_weights:
+    Security-Crypto: 8
+    SWE: 5
+    AI-Data: 3
+    Hardware-Embedded: 3
+    IT-Support: 0
+    Adjacent: -5
+
+sources:
+  adzuna:        {enabled: true,  interval_hours: 6}
+  reed:          {enabled: true,  interval_hours: 6}
+  jobs_ac_uk:    {enabled: true,  interval_hours: 12}
+  findajob:      {enabled: true,  interval_hours: 12}
+  indeed:        {enabled: false, interval_hours: 24}
+  gumtree:       {enabled: false, interval_hours: 24}
+  totaljobs:     {enabled: false, interval_hours: 24}
+  cwjobs:        {enabled: false, interval_hours: 24}
+  linkedin:      {enabled: false, interval_hours: 24}
+  nhs:           {enabled: false, interval_hours: 24}
+  brave:         {enabled: true,  interval_hours: 24}
+  watchlist:     {enabled: true,  interval_hours: 24}
+
+# type: greenhouse | lever | ashby | smartrecruiters | workday | page
+# id:   board token / company id / "tenant/wdN/site" / careers URL for "page"
+watchlist:
+  - {name: Monzo, type: greenhouse, id: monzo}
+  - {name: Airbus, type: workday, id: ag/wd3/Airbus}
+  - {name: Thales UK, type: workday, id: thales/wd3/Careers}
+  - {name: General Dynamics UK, type: page, id: "https://www.generaldynamics.uk.com/careers"}
+  - {name: KLA, type: workday, id: kla/wd1/Search}
+  - {name: IQE, type: page, id: "https://www.iqep.com/careers/"}
+  - {name: Admiral Group, type: page, id: "https://admiraljobs.co.uk/jobs"}
+  - {name: Deloitte UK, type: page, id: "https://apply.deloitte.com/careers/SearchJobs/cardiff"}
+  - {name: Office for National Statistics, type: page, id: "https://careers.ons.gov.uk/vacancies"}
+  - {name: Cardiff University, type: page, id: "https://jobs.cardiff.ac.uk/"}
+  - {name: Rolls-Royce, type: workday, id: rollsroyce/wd3/professional}
+  - {name: Graphcore, type: greenhouse, id: graphcore}
+  - {name: XMOS, type: page, id: "https://www.xmos.com/careers/"}
+  - {name: NCSC / GCHQ, type: page, id: "https://www.gchq-careers.co.uk/vacancies.html"}
+
+alerts:
+  enabled: true
+  ha_url: ""
+  notify_service: ""          # e.g. mobile_app_fins_iphone
+  threshold: 80
+  quiet_start: "23:00"
+  quiet_end: "08:00"
+  public_url: "http://pi:8080"
+
+llm:
+  score_model: claude-haiku-4-5
+  writer_model: claude-sonnet-5
+  daily_limit: 300
+  firecrawl_daily_credits: 60

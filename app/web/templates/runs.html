@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Sources · Job Scout{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Sources</h1>
+  <p class="muted">Where jobs come from, when each source last ran and when it runs next. Switch sources on or off and change intervals in <a href="/settings#sources">Settings</a>.</p>
+</div>
+<div id="runs" hx-get="/runs/table" hx-trigger="every 20s" hx-swap="innerHTML">{% include "_runs.html" %}</div>
+{% endblock %}

@@ -1,0 +1,38 @@
+<table class="grid">
+  <thead><tr><th>Source</th><th>State</th><th>Last run</th><th>Found</th><th>New</th><th>Merged</th><th>Filtered</th><th>Scored</th><th>Next run</th><th></th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <td><b>{{ r.src.label }}</b><div class="muted small">{{ r.src.note }}</div></td>
+    <td>
+      {% if r.missing %}<span class="chip warn" title="Add to .env">needs {{ r.missing|join(', ') }}</span>
+      {% elif r.cfg.enabled %}<span class="chip ok">on · every {{ r.cfg.interval_hours|round(1) }}h</span>
+      {% else %}<span class="chip">off</span>{% endif %}
+    </td>
+    {% if r.last %}
+    <td>{{ r.last.started_at|timeago }}{% if not r.last.finished_at %} <span class="chip">running…</span>{% endif %}
+      {% if r.last.error %}<div class="err small" title="{{ r.last.error }}">{{ r.last.error|truncate(90) }}</div>{% endif %}</td>
+    <td>{{ r.last.found }}</td><td>{{ r.last.new }}</td><td>{{ r.last.merged }}</td><td>{{ r.last.filtered }}</td><td>{{ r.last.scored }}</td>
+    {% else %}<td class="muted" colspan="6">never</td>{% endif %}
+    <td class="muted small">{{ r.next.strftime('%a %H:%M') if r.next else '—' }}</td>
+    <td>{% if not r.missing %}<button class="btn small" hx-post="/runs/{{ r.name }}" hx-target="#runs">Run now</button>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2 class="section-h">Recent runs</h2>
+<table class="grid compact">
+  <thead><tr><th>When</th><th>Source</th><th>Took</th><th>Found</th><th>New</th><th>Merged</th><th>Filtered</th><th>Scored</th><th>Error</th></tr></thead>
+  <tbody>
+  {% for r in recent %}
+  <tr>
+    <td>{{ (r.started_at|local).strftime('%d %b %H:%M') }}</td>
+    <td>{{ SOURCES[r.source].label if r.source in SOURCES else r.source }}</td>
+    <td class="muted">{% if r.finished_at %}{{ ((r.finished_at - r.started_at).total_seconds())|round|int }}s{% else %}…{% endif %}</td>
+    <td>{{ r.found }}</td><td>{{ r.new }}</td><td>{{ r.merged }}</td><td>{{ r.filtered }}</td><td>{{ r.scored }}</td>
+    <td class="err small">{{ r.error|truncate(120) }}</td>
+  </tr>
+  {% else %}<tr><td colspan="9" class="muted">No runs yet.</td></tr>{% endfor %}
+  </tbody>
+</table>
