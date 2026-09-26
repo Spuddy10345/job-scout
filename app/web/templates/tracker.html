@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Tracker · Job Scout{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Application tracker</h1>
+  <p class="muted">Move jobs along as you go. Applications with no update for 10+ days are flagged for a follow-up.</p>
+</div>
+<div id="board">{% include "_board.html" %}</div>
+{% endblock %}

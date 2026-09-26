@@ -1,0 +1,26 @@
+<div class="board">
+  {% for col, jobs in board.items() %}
+  <section class="col col-{{ col }}">
+    <h2>{{ col|capitalize }} <span class="count">{{ jobs|length }}</span></h2>
+    {% for j in jobs %}
+    <article class="card job-card">
+      <div class="job-card-top">
+        <span class="score {{ j.score|score_class }}">{{ j.score if j.score is not none else '…' }}</span>
+        <a href="/?job={{ j.id }}&status=any" class="job-card-title">{{ j.title }}</a>
+      </div>
+      <div class="muted small">{{ [j.company, j.location]|select|join(" · ") }}</div>
+      {% if j.id in stale %}<div class="chip warn">follow up?</div>{% endif %}
+      {% if j.id in last %}<div class="muted small last">{{ last[j.id].at|timeago }} · {{ last[j.id].text|truncate(60) }}</div>{% endif %}
+      <form hx-post="/job/{{ j.id }}/status" hx-target="#board" hx-trigger="change">
+        <input type="hidden" name="view" value="board">
+        <select name="status" aria-label="Move to">
+          {% for s in STATUSES %}<option value="{{ s }}" {{ 'selected' if j.status == s }}>{{ s|capitalize }}</option>{% endfor %}
+        </select>
+      </form>
+    </article>
+    {% else %}
+    <p class="muted small empty-col">Nothing here yet</p>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</div>

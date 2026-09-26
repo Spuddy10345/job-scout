@@ -1,0 +1,124 @@
+{% if not job %}
+<div class="drawer-body"><p>Job not found.</p></div>
+{% else %}
+<div class="drawer-head">
+  <button class="icon-btn close" onclick="closeDrawer()" aria-label="Close">✕</button>
+  <div class="drawer-title">
+    <span class="score big {{ job.score|score_class }}">{{ job.score if job.score is not none else '…' }}</span>
+    <div>
+      <h2>{{ job.title }}</h2>
+      <div class="muted">{{ job.company or 'Unknown company' }} · {{ job.location or 'location not given' }}
+        {% if job.distance_mi is not none %}· {{ job.distance_mi|round|int }} mi from {{ job.nearest_centre }}{% endif %}
+        {% if job.remote %}<span class="chip remote">remote</span>{% endif %}
+      </div>
+      <div class="facts">
+        {% if job.salary_text or job.salary_min %}<span>💷 {{ job.salary_text or (job.salary_min|money) }}</span>{% endif %}
+        {% if job.category %}<span class="cat cat-{{ job.category|lower }}">{{ job.category }}</span>{% endif %}
+        {% if job.seniority_fit %}<span class="chip">{{ job.seniority_fit }}</span>{% endif %}
+        {% if job.posted_at %}<span class="muted">posted {{ job.posted_at|timeago }}</span>{% endif %}
+        <span class="muted">found {{ job.first_seen|timeago }}</span>
+      </div>
+    </div>
+  </div>
+  <form class="status-row" hx-post="/job/{{ job.id }}/status" hx-target="#drawer" hx-trigger="change">
+    <label>Status
+      <select name="status">{% for s in STATUSES %}<option value="{{ s }}" {{ 'selected' if job.status == s }}>{{ s|capitalize }}</option>{% endfor %}</select>
+    </label>
+    <div class="actions">
+      <a class="btn primary" href="{{ job.apply_url or job.url }}" target="_blank" rel="noopener">Open advert ↗</a>
+      <button type="button" class="btn" hx-post="/job/{{ job.id }}/status" hx-vals='{"status": "hidden"}' hx-target="#drawer">Hide</button>
+    </div>
+  </form>
+</div>
+
+<div class="drawer-body">
+  {% if error %}<div class="err-box">{{ error }}</div>{% endif %}
+  {% if job.filtered_out %}<div class="note-box">Filtered out: {{ job.filter_reason }}</div>{% endif %}
+
+  {% if job.why %}
+  <section class="card">
+    <h3>Why it fits</h3>
+    <p>{{ job.why }}</p>
+    {% if job.cv_angle %}<p class="cv-angle"><span>CV angle</span>{{ job.cv_angle }}</p>{% endif %}
+    {% if job.red_flags %}<ul class="flags">{% for f in job.red_flags %}<li>⚠ {{ f }}</li>{% endfor %}</ul>{% endif %}
+  </section>
+  {% elif job.score is none and not job.filtered_out %}
+  <section class="card muted">Waiting to be scored.</section>
+  {% endif %}
+
+  <section class="card apply">
+    <h3>How to apply {% if job.apply_method %}<span class="chip method">{{ METHOD_LABEL.get(job.apply_method, job.apply_method) }}</span>{% endif %}</h3>
+    {% if job.apply_steps %}<ol>{% for s in job.apply_steps %}<li>{{ s }}</li>{% endfor %}</ol>{% endif %}
+    {% for label, guide in guides %}{% if guide %}<p class="guide"><b>{{ label }}:</b> {{ guide }}</p>{% endif %}{% endfor %}
+    <div class="links">
+      {% for s in job.sources %}
+      <a href="{{ s.url }}" target="_blank" rel="noopener">{{ SOURCES[s.source].label if s.source in SOURCES else s.source }} advert ↗</a>
+      {% if s.apply_url %}<a href="{{ s.apply_url }}" target="_blank" rel="noopener">Apply page ↗</a>{% endif %}
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>Contacts & company</h3>
+    {% if job.contacts %}
+    <ul class="contacts">
+      {% for c in job.contacts %}
+      <li>
+        <span class="chip">{{ c.kind }}</span>
+        {% if c.kind == 'email' %}<a href="mailto:{{ c.value }}?subject={{ ('Application: ' ~ job.title)|urlencode }}">{{ c.value }}</a>
+        {% elif c.kind == 'phone' %}<a href="tel:{{ c.value|replace(' ', '') }}">{{ c.value }}</a>
+        {% elif c.kind == 'url' %}<a href="{{ c.value }}" target="_blank" rel="noopener">{{ c.value }}</a>
+        {% else %}{{ c.value }}{% endif %}
+        {% if c.label %}<span class="muted">- {{ c.label }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted small">No direct contact details in the advert.</p>{% endif %}
+    <div class="links">
+      {% if job.company_website %}<a href="{{ job.company_website }}" target="_blank" rel="noopener">Company website ↗</a>{% endif %}
+      {% if job.company_linkedin %}<a href="{{ job.company_linkedin }}" target="_blank" rel="noopener">LinkedIn page ↗</a>{% endif %}
+      {% if job.company %}
+      <a href="https://find-and-update.company-information.service.gov.uk/search/companies?q={{ job.company|urlencode }}" target="_blank" rel="noopener">Companies House ↗</a>
+      <a href="https://www.glassdoor.co.uk/Search/results.htm?keyword={{ job.company|urlencode }}" target="_blank" rel="noopener">Glassdoor ↗</a>
+      {% endif %}
+    </div>
+    {% if enrich_ok and job.company and not (job.company_website and job.company_linkedin) %}
+    <button class="btn small" hx-post="/job/{{ job.id }}/enrich" hx-target="#drawer" hx-disabled-elt="this">
+      <span class="when-idle">Find website & LinkedIn</span><span class="when-busy">Searching…</span>
+    </button>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h3>Application note</h3>
+    <div id="cover">{% include "_cover.html" %}</div>
+  </section>
+
+  <section class="card">
+    <h3>Notes & history</h3>
+    <form hx-post="/job/{{ job.id }}/note" hx-target="#drawer" class="note-form">
+      <input name="text" placeholder="e.g. Called Sarah at the agency, sending CV Friday" autocomplete="off">
+      <button class="btn">Add</button>
+    </form>
+    <ul class="timeline">
+      {% for e in events %}<li><span class="muted small">{{ (e.at|local).strftime('%d %b %H:%M') }}</span> {% if e.kind == 'status' %}<b>{{ e.text }}</b>{% else %}{{ e.text }}{% endif %}</li>{% endfor %}
+      <li><span class="muted small">{{ (job.first_seen|local).strftime('%d %b %H:%M') }}</span> Found</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <details {{ 'open' if job.description|length < 700 }}>
+      <summary><h3>Advert text</h3></summary>
+      <div class="advert">{{ job.description or 'No description captured.' }}</div>
+    </details>
+    <div class="row-btns">
+      <button class="btn small" hx-post="/job/{{ job.id }}/rescore" hx-vals='{"fetch": "true"}' hx-target="#drawer" hx-disabled-elt="this">
+        <span class="when-idle">Fetch full advert & re-score</span><span class="when-busy">Working…</span>
+      </button>
+      <button class="btn small ghost" hx-post="/job/{{ job.id }}/rescore" hx-target="#drawer" hx-disabled-elt="this">
+        <span class="when-idle">Re-score</span><span class="when-busy">Scoring…</span>
+      </button>
+    </div>
+  </section>
+</div>
+{% endif %}

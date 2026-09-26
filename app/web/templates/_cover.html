@@ -1,0 +1,15 @@
+{% if error %}<div class="err-box">{{ error }}</div>{% endif %}
+{% if job.cover_note %}
+<textarea id="cover-{{ job.id }}" class="cover-text" rows="10">{{ job.cover_note }}</textarea>
+<div class="row-btns">
+  <button class="btn small" type="button" onclick="copyText('cover-{{ job.id }}', this)">Copy</button>
+  <button class="btn small ghost" hx-post="/job/{{ job.id }}/cover" hx-target="#cover" hx-disabled-elt="this">
+    <span class="when-idle">Regenerate</span><span class="when-busy">Writing…</span>
+  </button>
+</div>
+{% else %}
+<p class="muted small">Drafts a cover email, message or supporting statement that fits how this job is applied for, using only facts from your profile/CV.</p>
+<button class="btn" hx-post="/job/{{ job.id }}/cover" hx-target="#cover" hx-disabled-elt="this">
+  <span class="when-idle">Draft application note</span><span class="when-busy">Writing…</span>
+</button>
+{% endif %}

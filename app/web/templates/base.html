@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Job Scout{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='13' cy='13' r='9' fill='none' stroke='%232f6fed' stroke-width='4'/><path d='M20 20l8 8' stroke='%232f6fed' stroke-width='4' stroke-linecap='round'/></svg>">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="13" cy="13" r="9"/><path d="M20 20l8 8"/></svg>
+      Job Scout
+    </a>
+    {% set path = request.url.path %}
+    <nav>
+      <a href="/" class="{{ 'on' if path == '/' }}">Jobs</a>
+      <a href="/tracker" class="{{ 'on' if path == '/tracker' }}">Tracker</a>
+      <a href="/runs" class="{{ 'on' if path == '/runs' }}">Sources</a>
+      <a href="/settings" class="{{ 'on' if path == '/settings' }}">Settings</a>
+    </nav>
+    <div class="stats">
+      <span title="Jobs that pass your filters"><b>{{ counts.total }}</b> jobs</span>
+      <span title="Unreviewed jobs scoring 75+"><b>{{ counts.strong }}</b> strong</span>
+      {% if counts.pending %}<span title="Waiting for an AI score"><b>{{ counts.pending }}</b> scoring</span>{% endif %}
+      <span class="muted" title="Claude calls today / daily limit">AI {{ counts.llm_used }}/{{ counts.llm_limit }}</span>
+      <span class="muted" title="Firecrawl credits today / daily limit">FC {{ counts.fc_used }}/{{ counts.fc_limit }}</span>
+    </div>
+  </header>
+  {% if not counts.llm_ok %}
+  <div class="banner">ANTHROPIC_API_KEY isn't set, so jobs are collected and filtered but not scored. Add it to <code>.env</code> and restart.</div>
+  {% endif %}
+  {% if counts.placeholders and request.url.path != '/settings' %}
+  <div class="banner">Your profile still has [placeholders] - fill them in under <a href="/settings#profile">Settings → Profile</a> so scoring and application notes use your real details.</div>
+  {% endif %}
+  <main class="{% block main_class %}{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

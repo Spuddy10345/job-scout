@@ -1,0 +1,15 @@
+services:
+  job-scout:
+    build: .
+    image: job-scout:latest
+    container_name: job-scout
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file: .env
+    volumes:
+      - ./data:/data
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "3"}

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block main_class %}jobs-layout{% endblock %}
+{% block content %}
+<form id="filters" class="filters" hx-get="/jobs/table" hx-target="#table" hx-swap="innerHTML"
+      hx-trigger="change, input changed delay:350ms from:#q, jobs-changed from:body">
+  <input id="q" type="search" name="q" placeholder="Search title, company, text…" value="{{ p.q or '' }}">
+  <select name="category" aria-label="Category">
+    <option value="">All categories</option>
+    {% for c in CATEGORIES %}<option {{ 'selected' if p.category == c }}>{{ c }}</option>{% endfor %}
+  </select>
+  <select name="source" aria-label="Source">
+    <option value="">All sources</option>
+    {% for name, src in SOURCES.items() %}<option value="{{ name }}" {{ 'selected' if p.source == name }}>{{ src.label }}</option>{% endfor %}
+  </select>
+  <select name="status" aria-label="Status">
+    {% for v, l in [('active','Active'), ('new','New'), ('interested','Interested'), ('applied','Applied'), ('interview','Interview'), ('offer','Offer'), ('rejected','Rejected'), ('hidden','Hidden'), ('any','Any status')] %}
+    <option value="{{ v }}" {{ 'selected' if (p.status or 'active') == v }}>{{ l }}</option>{% endfor %}
+  </select>
+  <label class="inline">Min score
+    <input type="number" name="min_score" min="0" max="100" step="5" value="{{ p.min_score or '' }}" placeholder="0">
+  </label>
+  <select name="remote" aria-label="Remote">
+    <option value="">Local + remote</option>
+    <option value="exclude" {{ 'selected' if p.remote == 'exclude' }}>Local only</option>
+    <option value="only" {{ 'selected' if p.remote == 'only' }}>Remote only</option>
+  </select>
+  <select name="days" aria-label="Found within">
+    <option value="">Any time</option>
+    {% for d, l in [('1','Last 24h'), ('3','Last 3 days'), ('7','Last week')] %}<option value="{{ d }}" {{ 'selected' if p.days == d }}>{{ l }}</option>{% endfor %}
+  </select>
+  <select name="filtered" aria-label="Filtered">
+    <option value="">Hide filtered-out</option>
+    <option value="all" {{ 'selected' if p.filtered == 'all' }}>Include filtered-out</option>
+    <option value="only" {{ 'selected' if p.filtered == 'only' }}>Only filtered-out</option>
+  </select>
+  <input type="hidden" name="sort" id="sort" value="{{ p.sort or 'score' }}">
+  <input type="hidden" name="dir" id="dir" value="{{ p.dir or '' }}">
+</form>
+
+<section id="table" class="table-wrap">
+  {% include "_table.html" %}
+</section>
+
+<aside id="drawer" class="drawer" aria-live="polite"></aside>
+<div class="scrim" onclick="closeDrawer()"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function sortBy(col) {
+  const s = document.getElementById('sort'), d = document.getElementById('dir');
+  const ascDefault = ['distance', 'company', 'title'].includes(col);
+  if (s.value === col) d.value = (d.value || (ascDefault ? 'asc' : 'desc')) === 'desc' ? 'asc' : 'desc';
+  else { s.value = col; d.value = ''; }
+  htmx.trigger('#filters', 'change');
+}
+function openJob(id) {
+  htmx.ajax('GET', '/job/' + id, {target: '#drawer'}).then(() => document.body.classList.add('drawer-open'));
+  document.querySelectorAll('tr.sel').forEach(r => r.classList.remove('sel'));
+  document.querySelector('tr[data-id="' + id + '"]')?.classList.add('sel');
+  const u = new URL(location); u.searchParams.set('job', id); history.replaceState(null, '', u);
+}
+function closeDrawer() {
+  document.body.classList.remove('drawer-open');
+  const u = new URL(location); u.searchParams.delete('job'); history.replaceState(null, '', u);
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+document.addEventListener('DOMContentLoaded', () => { {% if open_job %}openJob({{ open_job|int }});{% endif %} });
+function copyText(id, btn) {
+  navigator.clipboard.writeText(document.getElementById(id).value).then(() => { btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy', 1500); });
+}
+</script>
+{% endblock %}
