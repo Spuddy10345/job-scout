@@ -156,7 +156,7 @@
     <p class="muted small">Today: {{ counts.llm_used }} AI calls, {{ counts.fc_used }} Firecrawl credits. Scoring a job with Haiku costs roughly £0.003.</p>
     <div class="form-foot"><button class="btn primary">Save</button><span class="result"></span></div>
   </form>
-  <form method="post" action="/settings/reset" onsubmit="return confirm('Reset every setting to the defaults? Jobs and your CV text are kept, profile notes are reset.')">
+  <form method="post" action="/settings/reset" data-confirm="Reset every setting to the defaults? Jobs and your CV text are kept, profile notes are reset.">
     <button class="btn small ghost danger">Reset all settings to defaults</button>
   </form>
 </section>

@@ -287,3 +287,12 @@ input.narrow { width: 90px; }
   .c-salary { display: none; }
   .filters > select, .filters label.inline { flex: 1 1 45%; }
 }
+
+/* ---------------------------------------------------------------- login */
+.login-body { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
+.login { width: min(360px, 100%); display: grid; gap: 12px; }
+.login label { display: grid; gap: 4px; }
+.banner.warn { background: var(--bad-soft); color: var(--bad); }
+.logout { display: inline; margin: 0; }
+.linkish { background: none; border: 0; color: var(--muted); font: inherit; cursor: pointer; padding: 6px 10px; }
+.linkish:hover { color: var(--text); }

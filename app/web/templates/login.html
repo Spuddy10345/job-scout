@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Job Scout</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="login-body">
+  <form class="card login" method="post" action="/login">
+    <h1>Job Scout</h1>
+    <p class="muted">Enter the password set in <code>JOBSCOUT_PASSWORD</code>.</p>
+    {% if error %}<div class="err-box">{{ error }}</div>{% endif %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Password <input type="password" name="password" autocomplete="current-password" autofocus required></label>
+    <button class="btn primary">Sign in</button>
+  </form>
+</body>
+</html>

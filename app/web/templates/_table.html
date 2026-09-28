@@ -1,6 +1,6 @@
 {% set sort = p.sort or 'score' %}
 {% macro th(col, label, cls='') -%}
-  <th class="sortable {{ cls }} {{ 'active' if sort == col }}" onclick="sortBy('{{ col }}')" aria-sort="{{ ('descending' if (p.dir or 'desc') == 'desc' else 'ascending') if sort == col else 'none' }}">
+  <th class="sortable {{ cls }} {{ 'active' if sort == col }}" data-sort="{{ col }}" aria-sort="{{ ('descending' if (p.dir or 'desc') == 'desc' else 'ascending') if sort == col else 'none' }}">
     {{ label }}{% if sort == col %}<span class="arrow">{{ '↓' if (p.dir or ('asc' if col in ['distance','company','title'] else 'desc')) == 'desc' else '↑' }}</span>{% endif %}
   </th>
 {%- endmacro %}
@@ -23,7 +23,7 @@
   </thead>
   <tbody>
   {% for j in jobs %}
-    <tr data-id="{{ j.id }}" onclick="openJob({{ j.id }})" class="{{ 'dim' if j.filtered_out or j.status in ['hidden','rejected'] }}" tabindex="0" onkeydown="if(event.key==='Enter')openJob({{ j.id }})">
+    <tr data-id="{{ j.id }}" class="{{ 'dim' if j.filtered_out or j.status in ['hidden','rejected'] }}" tabindex="0">
       <td class="c-score"><span class="score {{ j.score|score_class }}">{{ j.score if j.score is not none else '…' }}</span></td>
       <td class="c-role">
         <div class="role-title">
