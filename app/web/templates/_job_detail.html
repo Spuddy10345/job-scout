@@ -13,7 +13,7 @@
       </div>
       <div class="facts">
         {% if job.salary_text or job.salary_min %}<span>💷 {{ job.salary_text or (job.salary_min|money) }}</span>{% endif %}
-        {% if job.category %}<span class="cat cat-{{ job.category|lower }}">{{ job.category }}</span>{% endif %}
+        {% if job.category %}<span class="cat {{ cat_class(job.category) }}">{{ job.category }}</span>{% endif %}
         {% if job.seniority_fit %}<span class="chip">{{ job.seniority_fit }}</span>{% endif %}
         {% if job.posted_at %}<span class="muted">posted {{ job.posted_at|timeago }}</span>{% endif %}
         <span class="muted">found {{ job.first_seen|timeago }}</span>

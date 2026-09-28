@@ -157,9 +157,13 @@ def get_settings() -> AppSettings:
         return _cache.model_copy(deep=True)
 
 
+def cached_settings() -> AppSettings:
+    """Shared, read-only settings for hot paths like template filters - never mutate the result."""
+    return _cache or (get_settings() and _cache)
+
+
 def currency() -> str:
-    """Cheap read for template filters (no deep copy)."""
-    return (_cache or get_settings()).search.currency_symbol
+    return cached_settings().search.currency_symbol
 
 
 def categories(settings: AppSettings) -> list[str]:

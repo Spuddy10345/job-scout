@@ -131,15 +131,17 @@ label.check { display: flex; align-items: center; gap: 8px; align-self: end; pad
 .s-none { background: var(--surface-2); color: var(--muted); }
 
 .cat { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
-.cat-security-crypto { background: #efe7fd; color: #6b3fd4; }
-.cat-swe { background: var(--accent-soft); color: var(--accent); }
-.cat-ai-data { background: #e2f4f7; color: #11738a; }
-.cat-hardware-embedded { background: #fdebe1; color: #b0501c; }
-.cat-it-support { background: var(--good-soft); color: var(--good); }
+/* categories are user-defined, so colour them by position in the configured list */
+.cat-c0 { background: var(--accent-soft); color: var(--accent); }
+.cat-c1 { background: #efe7fd; color: #6b3fd4; }
+.cat-c2 { background: #e2f4f7; color: #11738a; }
+.cat-c3 { background: #fdebe1; color: #b0501c; }
+.cat-c4 { background: var(--good-soft); color: var(--good); }
+.cat-c5 { background: var(--mid-soft); color: var(--mid); }
 @media (prefers-color-scheme: dark) {
-  .cat-security-crypto { background: #2b2145; color: #b89cff; }
-  .cat-ai-data { background: #13323a; color: #5fd0e6; }
-  .cat-hardware-embedded { background: #3a2518; color: #ff9f6b; }
+  .cat-c1 { background: #2b2145; color: #b89cff; }
+  .cat-c2 { background: #13323a; color: #5fd0e6; }
+  .cat-c3 { background: #3a2518; color: #ff9f6b; }
 }
 
 .status { font-size: 12px; font-weight: 500; color: var(--muted); text-transform: capitalize; }
