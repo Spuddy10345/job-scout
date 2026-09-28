@@ -35,7 +35,8 @@ class Adzuna(Source):
             searches += [
                 {**where, "category": "it-jobs", "_page": 1},
                 {**where, "category": "it-jobs", "_page": 2},
-                {**where, "what_or": "software firmware embedded electronics FPGA cryptography security developer programmer", "_page": 1},
+                {**where, "_page": 1,
+                 "what_or": "software firmware embedded electronics FPGA cryptography security developer programmer"},
                 {**where, "what_or": "graduate junior trainee apprentice entry", "category": "it-jobs", "_page": 1},
             ]
         if settings.search.include_remote:

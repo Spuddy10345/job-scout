@@ -136,7 +136,7 @@ def test_rescore_all_leaves_hidden_jobs_alone(monkeypatch):
     monkeypatch.setattr(pipeline, "score_pending", lambda *a, **k: 0)
     pipeline.ingest([raw(), raw(title="IT Support Technician", url="https://example.com/job/2")], get_settings())
     with session() as s:
-        for j, status in zip(s.exec(select(Job).order_by(Job.id)).all(), ["new", "hidden"]):
+        for j, status in zip(s.exec(select(Job).order_by(Job.id)).all(), ["new", "hidden"], strict=True):
             j.score, j.status = 50, status
             s.add(j)
         s.commit()

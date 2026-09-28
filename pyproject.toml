@@ -1,8 +1,10 @@
 [project]
 name = "job-scout"
-version = "0.1.0"
-description = "Always-on job finder for early-career software engineers: collects, filters, scores and tracks roles."
+version = "0.2.0"
+description = "Self-hosted job finder: collects vacancies from APIs, boards and employer sites, filters them, has Claude score each against your profile, and tracks applications."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.0",
@@ -23,9 +25,39 @@ dependencies = [
     "uvicorn[standard]>=0.30",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Spuddy10345/job-scout"
+Issues = "https://github.com/Spuddy10345/job-scout/issues"
+
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.16",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+line-length = 130
+target-version = "py312"
+extend-exclude = ["tests/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM"]
+ignore = [
+    "E711", "E712",  # SQLModel column comparisons (== None / == False) are intentional
+    "S101",          # asserts are fine in tests
+    "S311",          # random is only used for demo data, not security
+    "SIM105",        # try/except/pass reads fine for best-effort cleanup
+    "B008",          # FastAPI's Form()/File() defaults
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106", "S108"]
+"scripts/*" = ["E402", "E501"]
+"tests/*.py" = ["E501"]
+# prompt text and per-site guidance read better unwrapped
+"app/prompts.py" = ["E501"]
+"app/web/routes.py" = ["E501"]

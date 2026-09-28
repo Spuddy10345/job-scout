@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
@@ -12,12 +12,25 @@ from sqlmodel import col, func, or_, select
 
 from .. import enrich, llm, notify, pages, pipeline, scheduler
 from ..auth import is_local_host, password, password_ok, safe_next
+from ..config import (
+    Centre,
+    SourceSettings,
+    WatchEntry,
+    cached_settings,
+    categories,
+    currency,
+    get_kv,
+    get_settings,
+    missing_keys,
+    reset_settings,
+    save_settings,
+    set_kv,
+    settings_saved,
+)
 from ..credentials import env, redact
-from ..config import (AppSettings, Centre, SourceSettings, WatchEntry, cached_settings, categories, currency, get_kv,
-                      get_settings, missing_keys, reset_settings, save_settings, set_kv, settings_saved)
-from ..prompts import DEFAULT_PERSONA, DEFAULT_RUBRIC
 from ..db import DATA_DIR, STATUSES, Job, JobEvent, SourceRun, session, utcnow
 from ..profile import extract_cv_text, profile_text
+from ..prompts import DEFAULT_PERSONA, DEFAULT_RUBRIC
 from ..sources import SOURCES
 
 router = APIRouter()
@@ -72,7 +85,7 @@ def score_class(score: int | None) -> str:
 
 def local(dt: datetime | None) -> datetime | None:
     """DB times are naive UTC; show them in the server's local time zone."""
-    return dt.replace(tzinfo=timezone.utc).astimezone() if dt else dt
+    return dt.replace(tzinfo=UTC).astimezone() if dt else dt
 
 
 def money(v: float | None) -> str:
