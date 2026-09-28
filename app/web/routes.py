@@ -375,7 +375,8 @@ def _err(msg: str) -> Response:
 def settings_page(request: Request):
     s = get_settings()
     return render(request, "settings.html", s=s, missing={n: missing_keys(n) for n in SOURCES}, models=llm.list_models(),
-                  alerts_ok=notify.configured(s), ha_token=bool(env("HA_TOKEN")))
+                  alerts_ok=notify.configured(s), ha_token=bool(env("HA_TOKEN")),
+                  apprise_count=len(notify.apprise_urls()))
 
 
 @router.post("/settings/profile", response_class=HTMLResponse)
@@ -514,10 +515,16 @@ def save_watchlist(watchlist: str = Form("")):
 
 @router.post("/settings/alerts", response_class=HTMLResponse)
 def save_alerts(enabled: bool = Form(False), ha_url: str = Form(""), notify_service: str = Form(""), threshold: int = Form(80),
-                quiet_start: str = Form("23:00"), quiet_end: str = Form("08:00"), public_url: str = Form("")):
+                quiet_start: str = Form("23:00"), quiet_end: str = Form("08:00"), public_url: str = Form(""),
+                mode: str = Form("instant"), digest_time: str = Form("18:00"), ha_enabled: bool = Form(False),
+                apprise_enabled: bool = Form(False)):
     s = get_settings()
     a = s.alerts
     a.enabled, a.ha_url, a.threshold = enabled, ha_url.strip(), threshold
+    if ha_url.strip() and urlsplit(ha_url.strip()).scheme not in ("http", "https"):
+        return _err("The Home Assistant URL must start with http:// or https://")
+    a.mode, a.digest_time = (mode if mode in ("instant", "digest") else "instant"), digest_time
+    a.ha_enabled, a.apprise_enabled = ha_enabled, apprise_enabled
     a.notify_service = notify_service.strip().removeprefix("notify.")
     a.quiet_start, a.quiet_end, a.public_url = quiet_start, quiet_end, public_url.strip() or a.public_url
     save_settings(s)
@@ -528,12 +535,14 @@ def save_alerts(enabled: bool = Form(False), ha_url: str = Form(""), notify_serv
 def test_alert():
     s = get_settings()
     if not notify.configured(s):
-        return _err("Set the HA URL, notify service and HA_TOKEN (.env) first")
-    try:
-        notify.send(s, "Job Scout test", "Alerts are working - strong matches will arrive like this.", s.alerts.public_url)
-    except Exception as e:
-        return _err(f"Failed: {e}")
-    return _saved("Test notification sent")
+        return _err("Nothing to send to yet: set APPRISE_URLS, or the Home Assistant URL, notify service and "
+                    "HA_TOKEN - and make sure alerts are on")
+    results = notify.send(s, "Job Scout test", "Alerts are working - strong matches will arrive like this.",
+                          s.alerts.public_url)
+    failed = {k: v for k, v in results.items() if v}
+    if failed:
+        return _err("; ".join(f"{k} failed: {v}" for k, v in failed.items()))
+    return _saved(f"Test sent via {', '.join(results)}")
 
 
 @router.post("/settings/llm", response_class=HTMLResponse)

@@ -63,6 +63,10 @@ class WatchEntry(BaseModel):
 
 class AlertSettings(BaseModel):
     enabled: bool = True
+    mode: str = "instant"  # instant | digest
+    digest_time: str = "18:00"
+    apprise_enabled: bool = True  # service URLs come from APPRISE_URLS in the environment
+    ha_enabled: bool = True
     ha_url: str = ""
     notify_service: str = ""
     threshold: int = 80

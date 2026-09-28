@@ -133,16 +133,31 @@
 
 <section id="alerts" class="card">
   <h2>Alerts</h2>
-  <p class="muted">Push notifications through Home Assistant's companion app when a new job scores at or above the threshold. Needs <code>HA_TOKEN</code> in <code>.env</code> ({{ 'set' if ha_token else 'not set' }}).</p>
+  <p class="muted">Push notifications when a new job scores at or above the threshold - through <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener noreferrer">Apprise</a> (ntfy, Discord, Telegram, Slack, email, Pushover and 100+ more) and/or Home Assistant's companion app. Service URLs and tokens stay in <code>.env</code>.</p>
   <form hx-post="/settings/alerts" hx-target="find .result">
     <div class="grid-3">
       <label class="check"><input type="checkbox" name="enabled" value="true" {{ 'checked' if s.alerts.enabled }}> Alerts on</label>
-      <label>Home Assistant URL <input name="ha_url" value="{{ s.alerts.ha_url }}" placeholder="http://homeassistant:8123"></label>
-      <label>Notify service <input name="notify_service" value="{{ s.alerts.notify_service }}" placeholder="mobile_app_your_phone"></label>
       <label>Score threshold <input type="number" name="threshold" value="{{ s.alerts.threshold }}" min="0" max="100"></label>
+      <label>When <select name="mode">
+        <option value="instant" {{ 'selected' if s.alerts.mode == 'instant' }}>As they're found (outside quiet hours)</option>
+        <option value="digest" {{ 'selected' if s.alerts.mode == 'digest' }}>Daily digest</option>
+      </select></label>
+      <label>Digest time <input type="time" name="digest_time" value="{{ s.alerts.digest_time }}"></label>
       <label>Quiet from <input type="time" name="quiet_start" value="{{ s.alerts.quiet_start }}"></label>
       <label>Quiet until <input type="time" name="quiet_end" value="{{ s.alerts.quiet_end }}"></label>
       <label>This app's URL <span class="muted">(for links in alerts)</span><input name="public_url" value="{{ s.alerts.public_url }}"></label>
+    </div>
+    <h3 class="sub">Apprise</h3>
+    <div class="grid-3">
+      <label class="check"><input type="checkbox" name="apprise_enabled" value="true" {{ 'checked' if s.alerts.apprise_enabled }}> Send via Apprise</label>
+      <div class="muted small">{% if apprise_count %}<span class="chip ok">{{ apprise_count }} service{{ 's' if apprise_count != 1 }} in APPRISE_URLS</span>{% else %}<span class="chip warn">APPRISE_URLS not set</span> e.g. <code>ntfy://ntfy.sh/your-secret-topic</code>{% endif %}</div>
+    </div>
+    <h3 class="sub">Home Assistant</h3>
+    <div class="grid-3">
+      <label class="check"><input type="checkbox" name="ha_enabled" value="true" {{ 'checked' if s.alerts.ha_enabled }}> Send via Home Assistant</label>
+      <label>Home Assistant URL <input name="ha_url" value="{{ s.alerts.ha_url }}" placeholder="http://homeassistant.local:8123"></label>
+      <label>Notify service <input name="notify_service" value="{{ s.alerts.notify_service }}" placeholder="mobile_app_your_phone"></label>
+      <div class="muted small">{% if ha_token %}<span class="chip ok">HA_TOKEN set</span>{% else %}<span class="chip warn">HA_TOKEN not set</span>{% endif %}</div>
     </div>
     <div class="form-foot">
       <button class="btn primary">Save alerts</button>
