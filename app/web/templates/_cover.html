@@ -2,7 +2,7 @@
 {% if job.cover_note %}
 <textarea id="cover-{{ job.id }}" class="cover-text" rows="10">{{ job.cover_note }}</textarea>
 <div class="row-btns">
-  <button class="btn small" type="button" onclick="copyText('cover-{{ job.id }}', this)">Copy</button>
+  <button class="btn small" type="button" data-copy="cover-{{ job.id }}">Copy</button>
   <button class="btn small ghost" hx-post="/job/{{ job.id }}/cover" hx-target="#cover" hx-disabled-elt="this">
     <span class="when-idle">Regenerate</span><span class="when-busy">Writing…</span>
   </button>

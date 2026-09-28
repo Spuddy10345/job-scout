@@ -44,8 +44,9 @@ class Adzuna(Source):
                 page = s.pop("_page")
                 r = client.get(API.format(page=page), params={**base, **s})
                 if r.status_code != 200:
+                    # never raise_for_status() here: its message includes the URL, and the key is in the query
                     log.warning("adzuna %s -> %s %s", s, r.status_code, r.text[:200])
-                    r.raise_for_status()
+                    raise RuntimeError(f"Adzuna HTTP {r.status_code}: {r.text[:120]}")
                 for it in r.json().get("results", []):
                     jobs.append(self._parse(it))
         return jobs

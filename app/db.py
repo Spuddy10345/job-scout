@@ -11,7 +11,9 @@ from pydantic import NaiveDatetime
 from sqlalchemy import event
 from sqlmodel import JSON, Column, Field, Session, SQLModel, create_engine
 
-DATA_DIR = Path(os.environ.get("JOBSCOUT_DATA", Path(__file__).resolve().parent.parent / "data"))
+from .credentials import ROOT
+
+DATA_DIR = Path(os.environ.get("JOBSCOUT_DATA") or ROOT / "data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 STATUSES = ["new", "interested", "applied", "interview", "offer", "rejected", "hidden"]

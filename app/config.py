@@ -5,19 +5,16 @@ Secrets never live here - they come from the environment (.env) only.
 
 from __future__ import annotations
 
-import os
 import threading
 from pathlib import Path
 
 import yaml
-from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
+from .credentials import ROOT, env
 from .db import Setting, session
 
-ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS_PATH = ROOT / "config" / "defaults.yaml"
-load_dotenv(ROOT / ".env")
 
 
 class Centre(BaseModel):
@@ -102,10 +99,6 @@ SOURCE_KEYS: dict[str, list[str]] = {
     "brave": ["BRAVE_API_KEY"],
     "watchlist": [],
 }
-
-
-def env(name: str) -> str:
-    return os.environ.get(name, "").strip()
 
 
 def missing_keys(source: str) -> list[str]:

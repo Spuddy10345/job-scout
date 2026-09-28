@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from markupsafe import escape
 from sqlmodel import col, func, or_, select
 
 from .. import enrich, llm, notify, pages, pipeline, scheduler
+from ..auth import is_local_host, password, password_ok, safe_next
+from ..credentials import env, redact
 from ..config import (AppSettings, Centre, SourceSettings, WatchEntry, get_kv, get_settings, missing_keys,
                       reset_settings, save_settings, set_kv)
 from ..db import DATA_DIR, STATUSES, Job, JobEvent, SourceRun, session, utcnow
@@ -76,7 +79,13 @@ def money(v: float | None) -> str:
     return f"£{v / 1000:.0f}k" if v else ""
 
 
-templates.env.filters.update(local=local, timeago=timeago, score_class=score_class, money=money)
+def safe_url(url: str | None) -> str:
+    """Only http(s) links from scraped or model-written data - never javascript: or data:."""
+    url = (url or "").strip()
+    return url if urlsplit(url).scheme.lower() in ("http", "https") else ""
+
+
+templates.env.filters.update(local=local, timeago=timeago, score_class=score_class, money=money, safe_url=safe_url)
 templates.env.globals.update(STATUSES=STATUSES, CATEGORIES=CATEGORIES, SOURCES=SOURCES, METHOD_LABEL=METHOD_LABEL)
 
 
@@ -96,7 +105,34 @@ def _counts() -> dict:
 
 
 def render(request: Request, name: str, **ctx) -> HTMLResponse:
-    return templates.TemplateResponse(request, name, {"counts": _counts(), **ctx})
+    open_access = not password() and not is_local_host(request)
+    return templates.TemplateResponse(request, name, {"counts": _counts(), "open_access": open_access,
+                                                       "auth_enabled": bool(password()), **ctx})
+
+
+# ---------------------------------------------------------------- login
+
+@router.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, next: str = "/"):
+    if not password() or request.session.get("auth"):
+        return RedirectResponse(safe_next(next), status_code=303)
+    return templates.TemplateResponse(request, "login.html", {"next": safe_next(next), "error": ""})
+
+
+@router.post("/login", response_class=HTMLResponse)
+def login(request: Request, password_: str = Form("", alias="password"), next: str = Form("/")):
+    if password_ok(password_):
+        request.session.clear()
+        request.session["auth"] = True
+        return RedirectResponse(safe_next(next), status_code=303)
+    return templates.TemplateResponse(request, "login.html", {"next": safe_next(next), "error": "Wrong password"},
+                                      status_code=401)
+
+
+@router.post("/logout")
+def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/login", status_code=303)
 
 
 # ---------------------------------------------------------------- jobs
@@ -214,7 +250,7 @@ def job_cover(request: Request, job_id: int):
             s.commit()
             error = ""
         except Exception as e:
-            error = str(e)
+            error = redact(str(e))
     return templates.TemplateResponse(request, "_cover.html", {"job": job, "error": error})
 
 
@@ -233,7 +269,7 @@ def job_rescore(request: Request, job_id: int, fetch: bool = Form(False)):
             s.add(job)
             s.commit()
         except Exception as e:
-            error = str(e)
+            error = redact(str(e))
     ctx = _job_ctx(job_id)
     ctx["error"] = error
     resp = templates.TemplateResponse(request, "_job_detail.html", ctx)
@@ -251,7 +287,7 @@ def job_enrich(request: Request, job_id: int):
             s.add(job)
             s.commit()
         except Exception as e:
-            error = str(e)
+            error = redact(str(e))
     ctx = _job_ctx(job_id)
     ctx["error"] = error
     return templates.TemplateResponse(request, "_job_detail.html", ctx)
@@ -320,14 +356,18 @@ def _lines(text: str) -> list[str]:
 
 
 def _saved(msg: str = "Saved") -> Response:
-    return HTMLResponse(f'<span class="saved">✓ {msg}</span>')
+    return HTMLResponse(f'<span class="saved">✓ {escape(msg)}</span>')
+
+
+def _err(msg: str) -> Response:
+    return HTMLResponse(f'<span class="err">{escape(redact(msg))}</span>')
 
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
     s = get_settings()
     return render(request, "settings.html", s=s, missing={n: missing_keys(n) for n in SOURCES},
-                  alerts_ok=notify.configured(s), ha_token=bool(__import__("os").environ.get("HA_TOKEN")))
+                  alerts_ok=notify.configured(s), ha_token=bool(env("HA_TOKEN")))
 
 
 @router.post("/settings/profile", response_class=HTMLResponse)
@@ -338,14 +378,29 @@ def save_profile(profile_md: str = Form(""), profile_mode: str = Form("both")):
     return _saved("Profile saved - use Re-score all to apply it to existing jobs")
 
 
+CV_TYPES = {".pdf", ".docx", ".md", ".markdown", ".txt"}
+CV_MAX_BYTES = 10 * 1024 * 1024
+
+
+def _remove_cv_files() -> None:
+    for f in DATA_DIR.glob("cv.*"):
+        f.unlink(missing_ok=True)
+
+
 @router.post("/settings/cv", response_class=HTMLResponse)
 async def upload_cv(request: Request, cv: UploadFile = File(...)):
-    data = await cv.read()
+    suffix = Path(cv.filename or "").suffix.lower()
+    if suffix not in CV_TYPES:
+        return _err("CV must be a PDF, DOCX, Markdown or text file")
+    data = await cv.read(CV_MAX_BYTES + 1)
+    if len(data) > CV_MAX_BYTES:
+        return _err("CV is larger than 10 MB")
     try:
         text = extract_cv_text(cv.filename or "cv", data)
     except Exception as e:
-        return HTMLResponse(f'<span class="err">Could not read CV: {e}</span>')
-    (DATA_DIR / f"cv{Path(cv.filename or '').suffix.lower()}").write_bytes(data)
+        return _err(f"Could not read CV: {e}")
+    _remove_cv_files()
+    (DATA_DIR / f"cv{suffix}").write_bytes(data)
     s = get_settings()
     s.cv_filename, s.cv_text, s.cv_uploaded = cv.filename or "cv", text, utcnow().strftime("%d %b %Y %H:%M")
     save_settings(s)
@@ -357,6 +412,7 @@ def delete_cv():
     s = get_settings()
     s.cv_filename = s.cv_text = s.cv_uploaded = ""
     save_settings(s)
+    _remove_cv_files()
     return RedirectResponse("/settings#profile", status_code=303)
 
 
@@ -380,7 +436,7 @@ def save_search(
             continue
         coords = geo.geocode(name, s.search.centres)
         if not coords:
-            return HTMLResponse(f'<span class="err">Couldn\'t find "{name}" - try a town name or postcode</span>')
+            return _err(f'Couldn\'t find "{name}" - try a town name or postcode')
         parsed.append(Centre(name=name, lat=coords[0], lon=coords[1], radius_mi=r))
     s.search.centres = parsed or s.search.centres
     s.search.include_remote, s.search.remote_penalty = include_remote, remote_penalty
@@ -405,7 +461,7 @@ def save_filters(seniority_words: str = Form(""), exclude_keywords: str = Form("
         try:
             weights[k.strip()] = int(v.strip())
         except ValueError:
-            return HTMLResponse(f'<span class="err">Bad weight line: "{line}" (use Category: number)</span>')
+            return _err(f'Bad weight line: "{line}" (use Category: number)')
     s.filters.category_weights = weights
     save_settings(s)
     changed = pipeline.refilter_all()
@@ -436,7 +492,7 @@ def save_watchlist(watchlist: str = Form("")):
     for line in _lines(watchlist):
         parts = [p.strip() for p in line.split("|")]
         if len(parts) != 3 or parts[1] not in ("greenhouse", "lever", "ashby", "smartrecruiters", "workday", "page"):
-            return HTMLResponse(f'<span class="err">Bad line: "{line}" - use Name | type | id-or-url</span>')
+            return _err(f'Bad line: "{line}" - use Name | type | id-or-url')
         entries.append(WatchEntry(name=parts[0], type=parts[1], id=parts[2]))
     s.watchlist = entries
     save_settings(s)
@@ -459,11 +515,11 @@ def save_alerts(enabled: bool = Form(False), ha_url: str = Form(""), notify_serv
 def test_alert():
     s = get_settings()
     if not notify.configured(s):
-        return HTMLResponse('<span class="err">Set the HA URL, notify service and HA_TOKEN (.env) first</span>')
+        return _err("Set the HA URL, notify service and HA_TOKEN (.env) first")
     try:
         notify.send(s, "Job Scout test", "Alerts are working - strong matches will arrive like this.", s.alerts.public_url)
     except Exception as e:
-        return HTMLResponse(f'<span class="err">Failed: {e}</span>')
+        return _err(f"Failed: {e}")
     return _saved("Test notification sent")
 
 

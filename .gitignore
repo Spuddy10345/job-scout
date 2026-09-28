@@ -1,6 +1,24 @@
+# Local data: SQLite database, uploaded CV, session key
 data/
+*.db
+*.db-shm
+*.db-wal
+
+# Secrets and personal config - never commit
 .env
+.env.*
+!.env.example
+config/local.yaml
+secrets/
+
+# Python / tooling
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/

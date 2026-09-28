@@ -72,7 +72,7 @@ def available() -> bool:
 def client() -> anthropic.Anthropic:
     global _client
     if _client is None:
-        _client = anthropic.Anthropic(max_retries=4, timeout=120)
+        _client = anthropic.Anthropic(api_key=env("ANTHROPIC_API_KEY"), max_retries=4, timeout=120)
     return _client
 
 

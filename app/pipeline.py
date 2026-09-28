@@ -15,6 +15,7 @@ from sqlmodel import or_, select
 
 from . import enrich, geo, llm, notify
 from .config import AppSettings, get_settings, missing_keys
+from .credentials import redact
 from .db import Job, SourceRun, session, utcnow
 from .profile import profile_text
 from .sources import SOURCES, RawJob
@@ -134,9 +135,11 @@ def ingest(raw_jobs: list[RawJob], settings: AppSettings) -> dict[str, int]:
     with _ingest_lock, session() as s:
         batch: dict[str, Job] = {}
         for r in raw_jobs:
-            if not r.title or not r.url:
-                continue
-            url = clean_url(r.url)
+            url = clean_url(r.url or "")
+            if not r.title or not url.startswith(("http://", "https://")):
+                continue  # model-extracted or scraped links could be anything, e.g. javascript:
+            if r.apply_url and not r.apply_url.startswith(("http://", "https://")):
+                r.apply_url = ""
             fp = fingerprint(r.title, r.company, r.location, url)
             job = batch.get(fp) or s.exec(select(Job).where(or_(Job.fingerprint == fp, Job.url == url))).first()
             src = {"source": r.source, "url": url, "apply_url": r.apply_url, "seen_at": now.isoformat(timespec="seconds")}
@@ -245,7 +248,7 @@ def score_pending(settings: AppSettings | None = None, max_jobs: int = 500) -> i
                     break
                 except Exception as e:
                     log.warning("scoring job %s failed: %s", job.id, e)
-                    job.score, job.why = 0, f"(scoring failed: {e})"
+                    job.score, job.why = 0, f"(scoring failed: {redact(str(e))})"
                 s.add(job)
                 try:
                     s.commit()
@@ -309,7 +312,7 @@ def run_source(name: str) -> SourceRun:
         log.info("%s: %s", name, stats)
     except Exception as e:
         log.exception("source %s failed", name)
-        run.error = str(e)[:1000]
+        run.error = redact(str(e))[:1000]
     finally:
         run.finished_at = utcnow()
         with session() as s:
