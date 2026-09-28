@@ -104,6 +104,7 @@ def _counts() -> dict:
     return {
         "total": total, "pending": pending, "strong": strong,
         "llm_used": llm.usage_today(), "llm_limit": settings.llm.daily_limit,
+        "cost_today": llm.cost_today(), "cost_month": llm.cost_month(), "batched": pipeline.batches_pending(),
         "fc_used": pages.credits_today(), "fc_limit": settings.llm.firecrawl_daily_credits,
         "llm_ok": llm.available(),
         "placeholders": settings.profile_mode != "cv" and "[" in settings.profile_md,
@@ -373,7 +374,7 @@ def _err(msg: str) -> Response:
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
     s = get_settings()
-    return render(request, "settings.html", s=s, missing={n: missing_keys(n) for n in SOURCES},
+    return render(request, "settings.html", s=s, missing={n: missing_keys(n) for n in SOURCES}, models=llm.list_models(),
                   alerts_ok=notify.configured(s), ha_token=bool(env("HA_TOKEN")))
 
 
@@ -537,16 +538,32 @@ def test_alert():
 
 @router.post("/settings/llm", response_class=HTMLResponse)
 def save_llm(score_model: str = Form(...), writer_model: str = Form(...), daily_limit: int = Form(300),
-             firecrawl_daily_credits: int = Form(60)):
+             daily_budget_usd: float = Form(2.0), firecrawl_daily_credits: int = Form(60),
+             batch_rescore: bool = Form(False), prices: str = Form("")):
     s = get_settings()
-    s.llm.score_model, s.llm.writer_model = score_model.strip(), writer_model.strip()
-    s.llm.daily_limit, s.llm.firecrawl_daily_credits = daily_limit, firecrawl_daily_credits
+    score_model, writer_model = score_model.strip(), writer_model.strip()
+    for model in {score_model, writer_model} - {s.llm.score_model, s.llm.writer_model}:
+        if problem := llm.check_model(model):  # catch typos before they stall scoring
+            return _err(problem)
+    table = {}
+    for line in _lines(prices):
+        model, _, nums = line.partition(":")
+        try:
+            p_in, p_out = (float(x) for x in nums.split(","))
+        except ValueError:
+            return _err(f'Bad price line: "{line}" (use model: input, output)')
+        table[model.strip()] = [p_in, p_out]
+    s.llm.score_model, s.llm.writer_model = score_model, writer_model
+    s.llm.daily_limit, s.llm.firecrawl_daily_credits = max(daily_limit, 0), max(firecrawl_daily_credits, 0)
+    s.llm.daily_budget_usd, s.llm.batch_rescore = max(daily_budget_usd, 0.0), batch_rescore
+    s.llm.prices = table or s.llm.prices
     save_settings(s)
     return _saved("Saved")
 
 
 @router.post("/settings/prompts", response_class=HTMLResponse)
-def save_prompts(scoring_rubric: str = Form(""), writer_persona: str = Form(""), reset: str = Form("")):
+def save_prompts(scoring_rubric: str = Form(""), writer_persona: str = Form(""), note_language: str = Form(""),
+                 reset: str = Form("")):
     s = get_settings()
     if reset:
         s.llm.scoring_rubric, s.llm.writer_persona = DEFAULT_RUBRIC, DEFAULT_PERSONA
@@ -554,6 +571,7 @@ def save_prompts(scoring_rubric: str = Form(""), writer_persona: str = Form(""),
         return RedirectResponse("/settings#prompts", status_code=303)
     s.llm.scoring_rubric = scoring_rubric.strip() or DEFAULT_RUBRIC
     s.llm.writer_persona = writer_persona.strip() or DEFAULT_PERSONA
+    s.llm.note_language = note_language.strip() or "British English"
     save_settings(s)
     return _saved("Saved - use Re-score all to apply the new rubric to existing jobs")
 
@@ -561,6 +579,9 @@ def save_prompts(scoring_rubric: str = Form(""), writer_persona: str = Form(""),
 @router.post("/settings/rescore", response_class=HTMLResponse)
 def rescore():
     scheduler.run_in_background(pipeline.rescore_all)
+    s = get_settings()
+    if s.llm.batch_rescore:
+        return _saved("Re-scoring in the background - large re-scores go through the Batches API and finish within a few hours")
     return _saved("Re-scoring in the background - jobs update as they're scored")
 
 

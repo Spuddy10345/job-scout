@@ -54,6 +54,7 @@ def sync_jobs() -> None:
 def start() -> None:
     scheduler.add_job(notify.flush_alerts, "interval", minutes=15, id="alerts", replace_existing=True)
     scheduler.add_job(pipeline.score_pending, "interval", minutes=30, id="score", replace_existing=True)
+    scheduler.add_job(pipeline.poll_batches, "interval", minutes=5, id="batches", replace_existing=True)
     sync_jobs()
     scheduler.start()
 

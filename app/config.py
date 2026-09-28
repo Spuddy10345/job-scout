@@ -76,8 +76,16 @@ class LLMSettings(BaseModel):
     writer_model: str = "claude-sonnet-5"
     daily_limit: int = 300
     firecrawl_daily_credits: int = 60
+    daily_budget_usd: float = 2.0  # 0 = no dollar cap
+    batch_rescore: bool = True  # "Re-score all" via the Message Batches API (half price, slower)
     scoring_rubric: str = DEFAULT_RUBRIC
     writer_persona: str = DEFAULT_PERSONA
+    note_language: str = "British English"
+    # $ per million tokens [input, output]; matched by model-ID prefix. Check anthropic.com/pricing.
+    prices: dict[str, list[float]] = Field(default_factory=lambda: {
+        "claude-haiku-4-5": [1.0, 5.0], "claude-sonnet-5": [2.0, 10.0], "claude-sonnet-4-6": [3.0, 15.0],
+        "claude-opus-5-5": [4.0, 20.0], "claude-opus-5": [5.0, 25.0], "claude-fable-5-1": [10.0, 50.0],
+    })
 
 
 class AppSettings(BaseModel):

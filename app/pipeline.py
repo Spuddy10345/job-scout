@@ -14,7 +14,7 @@ from sqlalchemy.exc import OperationalError
 from sqlmodel import col, or_, select
 
 from . import enrich, geo, llm, notify
-from .config import AppSettings, get_settings, missing_keys
+from .config import AppSettings, get_kv, get_settings, missing_keys, set_kv
 from .credentials import redact
 from .db import Job, SourceRun, session, utcnow
 from .profile import profile_text
@@ -26,6 +26,8 @@ _ingest_lock = threading.Lock()
 _score_lock = threading.Lock()
 _source_locks: dict[str, threading.Lock] = {}
 MAX_SCORE_ATTEMPTS = 3
+BATCH_MIN_JOBS = 20  # below this, re-scoring synchronously is quick enough
+BATCHES_KEY = "ai_batches"
 
 TRACKING = re.compile(r"^(utm_|fbclid|gclid|mc_|ref$|refId|trackingId|src$|source$)", re.I)
 COMPANY_SUFFIX = re.compile(r"\b(ltd|limited|plc|llp|inc|group|holdings|uk|the|co)\b\.?", re.I)
@@ -204,7 +206,10 @@ def _job_payload(job: Job) -> dict:
 
 
 def score_job(job: Job, settings: AppSettings, profile: str) -> None:
-    a = llm.score_job(settings, profile, _job_payload(job))
+    apply_assessment(job, settings, llm.score_job(settings, profile, _job_payload(job)), profile)
+
+
+def apply_assessment(job: Job, settings: AppSettings, a: llm.JobAssessment, profile: str) -> None:
     # Web-search results arrive with jumbled titles and no location - take the model's reading of the advert.
     from_search = all(x["source"] == "brave" for x in job.sources)
     if from_search and a.advert_title.strip():
@@ -246,7 +251,8 @@ def score_pending(settings: AppSettings | None = None, max_jobs: int = 500) -> i
             with session() as s:
                 job = s.exec(
                     select(Job)
-                    .where(Job.score == None, Job.filtered_out == False, Job.status != "hidden")  # noqa: E711,E712
+                    .where(Job.score == None, Job.filtered_out == False, Job.status != "hidden",  # noqa: E711,E712
+                           Job.batch_id == "")
                     .order_by(Job.score_attempts, Job.distance_mi == None, Job.distance_mi,  # noqa: E711
                               Job.first_seen.desc())
                 ).first()
@@ -287,13 +293,89 @@ def score_pending(settings: AppSettings | None = None, max_jobs: int = 500) -> i
 
 
 def rescore_all() -> int:
+    settings = get_settings()
     with session() as s:
-        active = select(Job).where(Job.filtered_out == False, col(Job.status).not_in(["hidden", "rejected"]))  # noqa: E712
-        for job in s.exec(active).all():
+        active = select(Job).where(Job.filtered_out == False, Job.batch_id == "",  # noqa: E712
+                                   col(Job.status).not_in(["hidden", "rejected"]))
+        jobs = s.exec(active).all()
+        for job in jobs:
             job.score, job.score_attempts = None, 0
             s.add(job)
         s.commit()
+    if settings.llm.batch_rescore and len(jobs) >= BATCH_MIN_JOBS and llm.available():
+        try:
+            return submit_batch(settings, jobs)
+        except Exception as e:  # budget, API trouble - fall back to scoring as usual
+            log.warning("batch submission failed, scoring synchronously: %s", redact(str(e)))
     return score_pending()
+
+
+def submit_batch(settings: AppSettings, jobs: list[Job]) -> int:
+    """Send jobs to the Message Batches API (half price). Only as many as today's call budget allows;
+    the rest stay queued for normal scoring."""
+    room = settings.llm.daily_limit - llm.usage_today()
+    jobs = jobs[:max(room, 0)]
+    if not jobs:
+        raise llm.BudgetExceeded("no AI calls left today")
+    profile = profile_text(settings)
+    batch_id = llm.submit_score_batch(settings, profile, {j.id: _job_payload(j) for j in jobs})
+    with _ingest_lock, session() as s:
+        for job in jobs:
+            job = s.get(Job, job.id)
+            job.batch_id = batch_id
+            s.add(job)
+        s.commit()
+    set_kv(BATCHES_KEY, {**get_kv(BATCHES_KEY, {}), batch_id: {"jobs": len(jobs), "submitted": utcnow().isoformat()}})
+    return len(jobs)
+
+
+def poll_batches() -> int:
+    """Collect finished batches. Jobs whose request failed or expired go back to the normal queue."""
+    pending = get_kv(BATCHES_KEY, {})
+    if not pending or not llm.available():
+        return 0
+    settings = get_settings()
+    profile = profile_text(settings)
+    applied = 0
+    for batch_id in list(pending):
+        try:
+            results = llm.batch_results(settings, batch_id)
+        except Exception as e:
+            log.warning("checking batch %s failed: %s", batch_id, redact(str(e)))
+            continue
+        if results is None:
+            continue  # still processing
+        # Read everything first: recording usage writes to the DB, which mustn't happen while the
+        # transaction below holds SQLite's write lock.
+        results = list(results)
+        with _ingest_lock, session() as s:
+            for job_id, assessment, error in results:
+                job = s.get(Job, job_id)
+                if job is None:
+                    continue
+                if assessment is not None:
+                    apply_assessment(job, settings, assessment, profile)
+                    applied += 1
+                else:
+                    log.info("batch result for job %s: %s", job_id, error)
+                job.batch_id = ""
+                s.add(job)
+            # anything the batch didn't mention goes back to the queue too
+            for job in s.exec(select(Job).where(Job.batch_id == batch_id)).all():
+                job.batch_id = ""
+                s.add(job)
+            s.commit()
+        pending.pop(batch_id)
+        set_kv(BATCHES_KEY, pending)
+        log.info("batch %s done: %d jobs scored", batch_id, applied)
+    if applied:
+        notify.flush_alerts()
+    score_pending()  # pick up anything that failed in the batch
+    return applied
+
+
+def batches_pending() -> int:
+    return sum(b.get("jobs", 0) for b in get_kv(BATCHES_KEY, {}).values())
 
 
 def refilter_all() -> dict[str, int]:

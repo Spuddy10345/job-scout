@@ -27,7 +27,7 @@
       <span title="Jobs that pass your filters"><b>{{ counts.total }}</b> jobs</span>
       <span title="Unreviewed jobs scoring 75+"><b>{{ counts.strong }}</b> strong</span>
       {% if counts.pending %}<span title="Waiting for an AI score"><b>{{ counts.pending }}</b> scoring</span>{% endif %}
-      <span class="muted" title="Claude calls today / daily limit">AI {{ counts.llm_used }}/{{ counts.llm_limit }}</span>
+      <span class="muted" title="Claude calls today / daily limit · spend today">AI {{ counts.llm_used }}/{{ counts.llm_limit }} · ${{ '%.2f'|format(counts.cost_today) }}</span>
       <span class="muted" title="Firecrawl credits today / daily limit">FC {{ counts.fc_used }}/{{ counts.fc_limit }}</span>
     </div>
   </header>
