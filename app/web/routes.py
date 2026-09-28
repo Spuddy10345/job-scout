@@ -13,8 +13,8 @@ from sqlmodel import col, func, or_, select
 from .. import enrich, llm, notify, pages, pipeline, scheduler
 from ..auth import is_local_host, password, password_ok, safe_next
 from ..credentials import env, redact
-from ..config import (AppSettings, Centre, SourceSettings, WatchEntry, categories, currency, get_kv, get_settings,
-                      missing_keys, reset_settings, save_settings, set_kv)
+from ..config import (AppSettings, Centre, SourceSettings, WatchEntry, cached_settings, categories, currency, get_kv,
+                      get_settings, missing_keys, reset_settings, save_settings, set_kv)
 from ..prompts import DEFAULT_PERSONA, DEFAULT_RUBRIC
 from ..db import DATA_DIR, STATUSES, Job, JobEvent, SourceRun, session, utcnow
 from ..profile import extract_cv_text, profile_text
@@ -86,8 +86,13 @@ def safe_url(url: str | None) -> str:
 
 
 templates.env.filters.update(local=local, timeago=timeago, score_class=score_class, money=money, safe_url=safe_url)
+def cat_class(name: str | None) -> str:
+    cats = categories(cached_settings())[:-1]  # "Not-relevant" stays grey
+    return f"cat-c{cats.index(name) % 6}" if name in cats else ""
+
+
 templates.env.globals.update(STATUSES=STATUSES, SOURCES=SOURCES, METHOD_LABEL=METHOD_LABEL,
-                             categories=lambda: categories(get_settings()))
+                             categories=lambda: categories(cached_settings()), cat_class=cat_class)
 
 
 def _counts() -> dict:

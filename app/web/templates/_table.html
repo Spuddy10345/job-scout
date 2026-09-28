@@ -44,7 +44,7 @@
         </div>
       </td>
       <td class="c-salary">{% if j.salary_min %}{{ j.salary_min|money }}{% if j.salary_max and j.salary_max != j.salary_min %}–{{ j.salary_max|money }}{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
-      <td class="c-cat">{% if j.category %}<span class="cat cat-{{ j.category|lower }}">{{ j.category }}</span>{% endif %}</td>
+      <td class="c-cat">{% if j.category %}<span class="cat {{ cat_class(j.category) }}">{{ j.category }}</span>{% endif %}</td>
       <td class="c-date muted">{{ j.posted_at|timeago if j.posted_at else '—' }}</td>
       <td class="c-date muted">{{ j.first_seen|timeago }}</td>
       <td class="c-status"><span class="status st-{{ j.status }}">{{ j.status }}</span></td>
