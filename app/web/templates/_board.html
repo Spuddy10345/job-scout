@@ -1,9 +1,9 @@
 <div class="board">
   {% for col, jobs in board.items() %}
-  <section class="col col-{{ col }}">
+  <section class="col col-{{ col }}" data-drop-status="{{ col }}">
     <h2>{{ col|capitalize }} <span class="count">{{ jobs|length }}</span></h2>
     {% for j in jobs %}
-    <article class="card job-card">
+    <article class="card job-card" draggable="true" data-drag-id="{{ j.id }}">
       <div class="job-card-top">
         <span class="score {{ j.score|score_class }}">{{ j.score if j.score is not none else '…' }}</span>
         <a href="/?job={{ j.id }}&status=any" class="job-card-title">{{ j.title }}</a>

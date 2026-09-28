@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from .. import llm
 from ..config import AppSettings, WatchEntry
-from ..db import SeenUrl, session
+from ..db import SeenUrl, session, utcnow
 from ..pages import get_page_text
 from .base import RawJob, Source, http_client, log
 
@@ -27,13 +27,13 @@ def _ts(value) -> datetime | None:
         return None
     try:
         if isinstance(value, (int, float)):
-            return datetime.utcfromtimestamp(value / 1000)
+            return datetime.fromtimestamp(value / 1000, UTC).replace(tzinfo=None)
         return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
     except (ValueError, OSError):
         return None
 
 
-def greenhouse(c, e: WatchEntry) -> list[RawJob]:
+def greenhouse(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
     r = c.get(f"https://boards-api.greenhouse.io/v1/boards/{e.id}/jobs", params={"content": "true"})
     r.raise_for_status()
     return [
@@ -44,7 +44,7 @@ def greenhouse(c, e: WatchEntry) -> list[RawJob]:
     ]
 
 
-def lever(c, e: WatchEntry) -> list[RawJob]:
+def lever(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
     r = c.get(f"https://api.lever.co/v0/postings/{e.id}", params={"mode": "json"})
     r.raise_for_status()
     return [
@@ -55,7 +55,7 @@ def lever(c, e: WatchEntry) -> list[RawJob]:
     ]
 
 
-def ashby(c, e: WatchEntry) -> list[RawJob]:
+def ashby(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
     r = c.get(f"https://api.ashbyhq.com/posting-api/job-board/{e.id}")
     r.raise_for_status()
     return [
@@ -66,8 +66,9 @@ def ashby(c, e: WatchEntry) -> list[RawJob]:
     ]
 
 
-def smartrecruiters(c, e: WatchEntry) -> list[RawJob]:
-    r = c.get(f"https://api.smartrecruiters.com/v1/companies/{e.id}/postings", params={"limit": 100, "country": "gb"})
+def smartrecruiters(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
+    r = c.get(f"https://api.smartrecruiters.com/v1/companies/{e.id}/postings",
+              params={"limit": 100, "country": settings.search.country.lower()})
     r.raise_for_status()
     out = []
     for j in r.json().get("content", []):
@@ -78,13 +79,27 @@ def smartrecruiters(c, e: WatchEntry) -> list[RawJob]:
     return out
 
 
-def workday(c, e: WatchEntry) -> list[RawJob]:
+def _workday_posted(text: str) -> datetime | None:
+    """Workday only says "Posted Today", "Posted Yesterday", "Posted 3 Days Ago" or "Posted 30+ Days Ago"."""
+    t = (text or "").lower()
+    if "today" in t:
+        days = 0
+    elif "yesterday" in t:
+        days = 1
+    elif m := re.search(r"(\d+)\+?\s*days?", t):
+        days = int(m.group(1))
+    else:
+        return None
+    return utcnow() - timedelta(days=days)
+
+
+def workday(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
     tenant, wd, site = e.id.split("/")
     host = f"https://{tenant}.{wd}.myworkdayjobs.com"
     out = []
     for offset in range(0, 200, 20):
         r = c.post(f"{host}/wday/cxs/{tenant}/{site}/jobs",
-                   json={"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": "United Kingdom"})
+                   json={"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": settings.search.country_name})
         r.raise_for_status()
         data = r.json()
         posts = data.get("jobPostings", [])
@@ -92,7 +107,7 @@ def workday(c, e: WatchEntry) -> list[RawJob]:
             if not j.get("externalPath"):
                 continue
             out.append(RawJob(title=j["title"], url=f"{host}/{site}{j['externalPath']}", source="watchlist", company=e.name,
-                              location=j.get("locationsText", ""), description=j.get("postedOn", "")))
+                              location=j.get("locationsText", ""), posted_at=_workday_posted(j.get("postedOn", ""))))
         if offset + 20 >= (data.get("total") or 0) or not posts:
             break
     return out
@@ -110,7 +125,7 @@ def page(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
         extracted = llm.extract_jobs(settings, text, e.id, hint=f"This is the careers page of {e.name}.")
         row = row or SeenUrl(url=e.id)
         row.content_hash = digest
-        row.seen_at = datetime.utcnow()
+        row.seen_at = utcnow()
         s.add(row)
         s.commit()
     return [
@@ -120,7 +135,8 @@ def page(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
     ]
 
 
-HANDLERS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "smartrecruiters": smartrecruiters, "workday": workday}
+HANDLERS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "smartrecruiters": smartrecruiters, "workday": workday,
+            "page": page}
 
 
 class Watchlist(Source):
@@ -135,10 +151,7 @@ class Watchlist(Source):
         with http_client(headers={"Accept": "application/json"}) as c:
             for e in settings.watchlist:
                 try:
-                    if e.type == "page":
-                        jobs += page(c, e, settings)
-                    else:
-                        jobs += HANDLERS[e.type](c, e)
+                    jobs += HANDLERS[e.type](c, e, settings)
                 except Exception as ex:
                     errors.append(f"{e.name}: {ex}")
                     log.warning("watchlist %s failed: %s", e.name, ex)

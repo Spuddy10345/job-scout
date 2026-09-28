@@ -1,15 +1,37 @@
+# docker compose up -d          - pull the published image and run it
+# docker compose up -d --build  - build from this checkout instead
 services:
   job-scout:
+    image: ghcr.io/spuddy10345/job-scout:latest
     build: .
-    image: job-scout:latest
     container_name: job-scout
     restart: unless-stopped
+    # Only reachable from this machine by default. To reach it from your LAN, set
+    # JOBSCOUT_BIND=0.0.0.0 in .env - and set JOBSCOUT_PASSWORD too.
     ports:
-      - "8080:8080"
+      - "${JOBSCOUT_BIND:-127.0.0.1}:${JOBSCOUT_HOST_PORT:-8080}:8080"
     env_file: .env
+    environment:
+      TZ: ${TZ:-Europe/London}
+      # fixed inside the container, whatever .env says
+      JOBSCOUT_HOST: 0.0.0.0
+      JOBSCOUT_PORT: "8080"
+      JOBSCOUT_DATA: /data
     volumes:
-      - ./data:/data
+      - ./data:/data                         # SQLite database, uploaded CV, session key
+      # - ./config/local.yaml:/app/config/local.yaml:ro   # your own starting settings
+    # To keep keys out of .env, use secrets and point NAME_FILE at them instead:
+    # secrets: [anthropic_api_key]
+    #   environment: {ANTHROPIC_API_KEY_FILE: /run/secrets/anthropic_api_key}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     mem_limit: 512m
     logging:
       driver: json-file
       options: {max-size: "5m", max-file: "3"}
+
+# secrets:
+#   anthropic_api_key:
+#     file: ./secrets/anthropic_api_key

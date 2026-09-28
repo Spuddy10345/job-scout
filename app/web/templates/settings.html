@@ -3,16 +3,23 @@
 {% block main_class %}settings-layout{% endblock %}
 {% block content %}
 <nav class="settings-nav">
+  <a href="#integrations">Integrations</a>
   <a href="#profile">Profile & CV</a>
   <a href="#search">Search area</a>
   <a href="#filters">Filters & weights</a>
   <a href="#sources">Sources</a>
   <a href="#watchlist">Company watchlist</a>
   <a href="#alerts">Alerts</a>
+  <a href="#prompts">Scoring rubric</a>
   <a href="#ai">AI & budgets</a>
 </nav>
 
 <div class="settings">
+
+<section id="integrations" class="card">
+  <h2>Integrations</h2>
+  {% include "_integrations.html" %}
+</section>
 
 <section id="profile" class="card">
   <h2>Profile & CV</h2>
@@ -69,6 +76,13 @@
         <textarea name="board_queries" rows="9">{{ s.search.board_queries|join('\n') }}</textarea></label>
       <label>Web discovery searches <span class="muted">(Brave)</span>
         <textarea name="discovery_queries" rows="9">{{ s.search.discovery_queries|join('\n') }}</textarea></label>
+      <label>University job searches <span class="muted">(jobs.ac.uk)</span>
+        <textarea name="academic_queries" rows="9">{{ s.search.academic_queries|join('\n') }}</textarea></label>
+    </div>
+    <div class="grid-3">
+      <label>Country code <span class="muted">(Adzuna: gb, us, de, au…)</span><input name="country" value="{{ s.search.country }}" maxlength="2" class="narrow"></label>
+      <label>Country name <span class="muted">(Workday search)</span><input name="country_name" value="{{ s.search.country_name }}"></label>
+      <label>Currency symbol <input name="currency_symbol" value="{{ s.search.currency_symbol }}" maxlength="3" class="narrow"></label>
     </div>
     <div class="form-foot"><button class="btn primary">Save & re-filter</button><span class="result"></span></div>
   </form>
@@ -87,7 +101,7 @@
       <label>Category score adjustments <span class="muted">(<code>Category: ±points</code>)</span>
         <textarea name="category_weights" rows="7">{% for k, v in s.filters.category_weights.items() %}{{ k }}: {{ v }}
 {% endfor %}</textarea></label>
-      <div class="muted small hint">Categories: {{ CATEGORIES|join(', ') }}. A job's final score = AI fit + category adjustment − remote penalty.</div>
+      <div class="muted small hint">These lines define the categories the AI sorts jobs into (plus “Not-relevant”) - rename, add or remove them to suit your search. A job's final score = AI fit + category adjustment − remote penalty.</div>
     </div>
     <div class="form-foot"><button class="btn primary">Save & re-filter</button><span class="result"></span></div>
   </form>
@@ -96,19 +110,7 @@
 <section id="sources" class="card">
   <h2>Sources</h2>
   <form hx-post="/settings/sources" hx-target="find .result">
-    <table class="grid">
-      <thead><tr><th>On</th><th>Source</th><th>Every (hours)</th><th>Keys</th></tr></thead>
-      <tbody>
-      {% for name, src in SOURCES.items() %}{% set cfg = s.sources.get(name) %}
-      <tr>
-        <td><input type="checkbox" name="{{ name }}_enabled" {{ 'checked' if cfg and cfg.enabled }} aria-label="Enable {{ src.label }}"></td>
-        <td><b>{{ src.label }}</b><div class="muted small">{{ src.note }}</div></td>
-        <td><input type="number" name="{{ name }}_interval" value="{{ cfg.interval_hours if cfg else 24 }}" min="0.25" step="0.25" class="narrow"></td>
-        <td>{% if missing[name] %}<span class="chip warn">needs {{ missing[name]|join(', ') }}</span>{% else %}<span class="chip ok">ready</span>{% endif %}</td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+    {% include "_sources_table.html" %}
     <div class="form-foot"><button class="btn primary">Save & reschedule</button><span class="result"></span></div>
   </form>
 </section>
@@ -125,16 +127,31 @@
 
 <section id="alerts" class="card">
   <h2>Alerts</h2>
-  <p class="muted">Push notifications through Home Assistant's companion app when a new job scores at or above the threshold. Needs <code>HA_TOKEN</code> in <code>.env</code> ({{ 'set' if ha_token else 'not set' }}).</p>
+  <p class="muted">Push notifications when a new job scores at or above the threshold - through <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener noreferrer">Apprise</a> (ntfy, Discord, Telegram, Slack, email, Pushover and 100+ more) and/or Home Assistant's companion app. Service URLs and tokens stay in <code>.env</code>.</p>
   <form hx-post="/settings/alerts" hx-target="find .result">
     <div class="grid-3">
       <label class="check"><input type="checkbox" name="enabled" value="true" {{ 'checked' if s.alerts.enabled }}> Alerts on</label>
-      <label>Home Assistant URL <input name="ha_url" value="{{ s.alerts.ha_url }}" placeholder="http://homeassistant:8123"></label>
-      <label>Notify service <input name="notify_service" value="{{ s.alerts.notify_service }}" placeholder="mobile_app_your_phone"></label>
       <label>Score threshold <input type="number" name="threshold" value="{{ s.alerts.threshold }}" min="0" max="100"></label>
+      <label>When <select name="mode">
+        <option value="instant" {{ 'selected' if s.alerts.mode == 'instant' }}>As they're found (outside quiet hours)</option>
+        <option value="digest" {{ 'selected' if s.alerts.mode == 'digest' }}>Daily digest</option>
+      </select></label>
+      <label>Digest time <input type="time" name="digest_time" value="{{ s.alerts.digest_time }}"></label>
       <label>Quiet from <input type="time" name="quiet_start" value="{{ s.alerts.quiet_start }}"></label>
       <label>Quiet until <input type="time" name="quiet_end" value="{{ s.alerts.quiet_end }}"></label>
       <label>This app's URL <span class="muted">(for links in alerts)</span><input name="public_url" value="{{ s.alerts.public_url }}"></label>
+    </div>
+    <h3 class="sub">Apprise</h3>
+    <div class="grid-3">
+      <label class="check"><input type="checkbox" name="apprise_enabled" value="true" {{ 'checked' if s.alerts.apprise_enabled }}> Send via Apprise</label>
+      <div class="muted small">{% if apprise_count %}<span class="chip ok">{{ apprise_count }} service{{ 's' if apprise_count != 1 }} in APPRISE_URLS</span>{% else %}<span class="chip warn">APPRISE_URLS not set</span> e.g. <code>ntfy://ntfy.sh/your-secret-topic</code>{% endif %}</div>
+    </div>
+    <h3 class="sub">Home Assistant</h3>
+    <div class="grid-3">
+      <label class="check"><input type="checkbox" name="ha_enabled" value="true" {{ 'checked' if s.alerts.ha_enabled }}> Send via Home Assistant</label>
+      <label>Home Assistant URL <input name="ha_url" value="{{ s.alerts.ha_url }}" placeholder="http://homeassistant.local:8123"></label>
+      <label>Notify service <input name="notify_service" value="{{ s.alerts.notify_service }}" placeholder="mobile_app_your_phone"></label>
+      <div class="muted small">{% if ha_token %}<span class="chip ok">HA_TOKEN set</span>{% else %}<span class="chip warn">HA_TOKEN not set</span>{% endif %}</div>
     </div>
     <div class="form-foot">
       <button class="btn primary">Save alerts</button>
@@ -144,19 +161,42 @@
   </form>
 </section>
 
+<section id="prompts" class="card">
+  <h2>Scoring rubric</h2>
+  <p class="muted">How the AI decides a job's fit score, in plain words. Describe who the candidate is and what each score band means for them - your profile and CV are added after it. The field rules the app relies on are fixed and appended automatically.</p>
+  <form hx-post="/settings/prompts" hx-target="find .result">
+    <label>Rubric <textarea name="scoring_rubric" rows="12">{{ s.llm.scoring_rubric }}</textarea></label>
+    <div class="grid-3">
+      <label>Application notes are written for <input name="writer_persona" value="{{ s.llm.writer_persona }}" placeholder="a job seeker early in their tech career"></label>
+      <label>…in <input name="note_language" value="{{ s.llm.note_language }}" placeholder="British English"></label>
+    </div>
+    <div class="form-foot"><button class="btn primary">Save rubric</button><span class="result"></span></div>
+  </form>
+  <form method="post" action="/settings/prompts" data-confirm="Reset the rubric and persona to the built-in defaults?">
+    <input type="hidden" name="reset" value="1">
+    <button class="btn small ghost">Reset rubric to default</button>
+  </form>
+</section>
+
 <section id="ai" class="card">
   <h2>AI & budgets</h2>
   <form hx-post="/settings/llm" hx-target="find .result">
     <div class="grid-3">
-      <label>Scoring & extraction model <input name="score_model" value="{{ s.llm.score_model }}"></label>
-      <label>Application-note model <input name="writer_model" value="{{ s.llm.writer_model }}"></label>
+      <label>Scoring & extraction model <input name="score_model" value="{{ s.llm.score_model }}" list="models" autocomplete="off"></label>
+      <label>Application-note model <input name="writer_model" value="{{ s.llm.writer_model }}" list="models" autocomplete="off"></label>
+      <datalist id="models">{% for m in models %}<option value="{{ m }}">{% endfor %}</datalist>
       <label>Max AI calls per day <input type="number" name="daily_limit" value="{{ s.llm.daily_limit }}" min="0"></label>
+      <label>Max AI spend per day <span class="muted">(US$, 0 = no cap)</span><input type="number" name="daily_budget_usd" value="{{ s.llm.daily_budget_usd }}" min="0" step="0.5"></label>
       <label>Max Firecrawl credits per day <input type="number" name="firecrawl_daily_credits" value="{{ s.llm.firecrawl_daily_credits }}" min="0"></label>
+      <label class="check"><input type="checkbox" name="batch_rescore" value="true" {{ 'checked' if s.llm.batch_rescore }}> Re-score all through the Batches API <span class="muted">(half price, results within a few hours)</span></label>
     </div>
-    <p class="muted small">Today: {{ counts.llm_used }} AI calls, {{ counts.fc_used }} Firecrawl credits. Scoring a job with Haiku costs roughly £0.003.</p>
+    <label>Prices <span class="muted">(US$ per million tokens: <code>model: input, output</code> - matched by model-ID prefix; check <a href="https://www.anthropic.com/pricing" target="_blank" rel="noopener noreferrer">anthropic.com/pricing</a>)</span>
+      <textarea name="prices" rows="6" class="mono">{% for m, p in s.llm.prices.items() %}{{ m }}: {{ p[0] }}, {{ p[1] }}
+{% endfor %}</textarea></label>
+    <p class="muted small">Today: {{ counts.llm_used }} AI calls costing ${{ '%.3f'|format(counts.cost_today) }} · this month ${{ '%.2f'|format(counts.cost_month) }} · {{ counts.fc_used }} Firecrawl credits{% if counts.batched %} · {{ counts.batched }} jobs waiting in a batch{% endif %}.</p>
     <div class="form-foot"><button class="btn primary">Save</button><span class="result"></span></div>
   </form>
-  <form method="post" action="/settings/reset" onsubmit="return confirm('Reset every setting to the defaults? Jobs and your CV text are kept, profile notes are reset.')">
+  <form method="post" action="/settings/reset" data-confirm="Reset every setting to the defaults? Jobs and your CV text are kept, profile notes are reset.">
     <button class="btn small ghost danger">Reset all settings to defaults</button>
   </form>
 </section>

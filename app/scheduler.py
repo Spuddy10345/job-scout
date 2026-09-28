@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -36,7 +36,7 @@ def sync_jobs() -> None:
     for job in scheduler.get_jobs():
         if job.id.startswith("source:"):
             job.remove()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     for i, (name, cfg) in enumerate(settings.sources.items()):
         if name not in SOURCES or not cfg.enabled or missing_keys(name):
             continue
@@ -46,7 +46,7 @@ def sync_jobs() -> None:
         first = max(last + interval, now + timedelta(seconds=20 + i * 45)) if last else now + timedelta(seconds=20 + i * 45)
         scheduler.add_job(
             pipeline.run_source, "interval", args=[name], id=f"source:{name}", seconds=interval.total_seconds(),
-            next_run_time=first.replace(tzinfo=timezone.utc), replace_existing=True,  # DB times are naive UTC
+            next_run_time=first.replace(tzinfo=UTC), replace_existing=True,  # DB times are naive UTC
         )
     log.info("scheduled: %s", [j.id for j in scheduler.get_jobs()])
 
@@ -54,6 +54,7 @@ def sync_jobs() -> None:
 def start() -> None:
     scheduler.add_job(notify.flush_alerts, "interval", minutes=15, id="alerts", replace_existing=True)
     scheduler.add_job(pipeline.score_pending, "interval", minutes=30, id="score", replace_existing=True)
+    scheduler.add_job(pipeline.poll_batches, "interval", minutes=5, id="batches", replace_existing=True)
     sync_jobs()
     scheduler.start()
 

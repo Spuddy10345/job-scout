@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Stats · Job Scout{% endblock %}
+{% macro hbars(rows, label) -%}
+<div class="hbars" role="img" aria-label="{{ label }}">
+  {% for r in rows %}
+  <div class="hbar" title="{{ r.label }}: {{ r.text }}">
+    <span class="hbar-label">{{ r.label }}</span>
+    <span class="hbar-track"><span class="hbar-fill" style="width: {{ r.pct }}%"></span></span>
+    <span class="hbar-value">{{ r.text }}</span>
+  </div>
+  {% else %}<p class="muted small">Nothing yet.</p>{% endfor %}
+</div>
+{%- endmacro %}
+{% macro vbars(rows, label, every=1) -%}
+<div class="vbars" role="img" aria-label="{{ label }}">
+  {% for r in rows %}
+  <div class="vbar" title="{{ r.label }}: {{ r.text }}">
+    <span class="vbar-track"><span class="vbar-fill" style="height: {{ r.pct }}%"></span></span>
+    <span class="vbar-label">{{ r.label if (loop.length - 1 - loop.index0) % every == 0 else '' }}</span>
+  </div>
+  {% endfor %}
+</div>
+{%- endmacro %}
+{% macro table(rows, head) -%}
+<details class="data-table"><summary class="small">Show as table</summary>
+  <table class="grid compact"><thead><tr><th>{{ head }}</th><th>Value</th></tr></thead>
+  <tbody>{% for r in rows %}<tr><td>{{ r.label }}</td><td>{{ r.text }}</td></tr>{% endfor %}</tbody></table>
+</details>
+{%- endmacro %}
+{% block content %}
+<div class="page-head">
+  <h1>Stats</h1>
+  <p class="muted">How the search is going. Hover a bar for its value.</p>
+</div>
+
+<div class="tiles">
+  <div class="card tile"><b>{{ st.totals.found_8w }}</b><span class="muted">jobs found, last 8 weeks</span></div>
+  <div class="card tile"><b>{{ st.totals.scored }}</b><span class="muted">jobs scored</span></div>
+  <div class="card tile"><b>{{ st.totals.applied }}</b><span class="muted">applications</span></div>
+  <div class="card tile"><b>${{ '%.2f'|format(st.totals.spend_30d) }}</b><span class="muted">AI spend, 30 days</span></div>
+  <div class="card tile"><b>{{ st.totals.credits_30d }}</b><span class="muted">Firecrawl credits, 30 days</span></div>
+</div>
+
+<div class="charts">
+  <section class="card chart">
+    <h3>Jobs found per week</h3>
+    {{ vbars(st.per_week, "Jobs found per week, last 8 weeks") }}
+    {{ table(st.per_week, "Week starting") }}
+  </section>
+  <section class="card chart">
+    <h3>Where jobs come from <span class="muted">(last 8 weeks)</span></h3>
+    {{ hbars(st.by_source, "Jobs found by source") }}
+    {{ table(st.by_source, "Source") }}
+  </section>
+  <section class="card chart">
+    <h3>Score distribution</h3>
+    {{ vbars(st.histogram, "Number of jobs in each score band") }}
+    {{ table(st.histogram, "Score") }}
+  </section>
+  <section class="card chart">
+    <h3>Applications</h3>
+    {{ hbars(st.funnel, "Jobs that reached each stage") }}
+    {{ table(st.funnel, "Stage reached") }}
+  </section>
+  <section class="card chart">
+    <h3>AI spend per day <span class="muted">(US$, last 30 days)</span></h3>
+    {{ vbars(st.spend, "AI spend per day", 7) }}
+    {{ table(st.spend, "Day") }}
+  </section>
+  <section class="card chart">
+    <h3>Firecrawl credits per day <span class="muted">(last 30 days)</span></h3>
+    {{ vbars(st.credits, "Firecrawl credits used per day", 7) }}
+    {{ table(st.credits, "Day") }}
+  </section>
+</div>
+{% endblock %}

@@ -1,4 +1,5 @@
-"""Runtime settings: seeded from config/defaults.yaml, persisted in the Setting table.
+"""Runtime settings, layered: config/defaults.yaml < config/local.yaml (optional, gitignored,
+path overridable with JOBSCOUT_CONFIG) < whatever was saved from the Settings page (Setting table).
 
 Secrets never live here - they come from the environment (.env) only.
 """
@@ -10,14 +11,14 @@ import threading
 from pathlib import Path
 
 import yaml
-from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
+from .credentials import ROOT, env
 from .db import Setting, session
+from .prompts import DEFAULT_CATEGORIES, DEFAULT_PERSONA, DEFAULT_RUBRIC, NOT_RELEVANT
 
-ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS_PATH = ROOT / "config" / "defaults.yaml"
-load_dotenv(ROOT / ".env")
+LOCAL_PATH = Path(os.environ.get("JOBSCOUT_CONFIG") or ROOT / "config" / "local.yaml")
 
 
 class Centre(BaseModel):
@@ -36,6 +37,10 @@ class SearchSettings(BaseModel):
     queries: list[str] = Field(default_factory=list)
     board_queries: list[str] = Field(default_factory=list)
     discovery_queries: list[str] = Field(default_factory=list)
+    academic_queries: list[str] = Field(default_factory=list)
+    country: str = "gb"  # Adzuna country code and SmartRecruiters filter
+    country_name: str = "United Kingdom"  # Workday search text
+    currency_symbol: str = "£"
 
 
 class FilterSettings(BaseModel):
@@ -58,6 +63,10 @@ class WatchEntry(BaseModel):
 
 class AlertSettings(BaseModel):
     enabled: bool = True
+    mode: str = "instant"  # instant | digest
+    digest_time: str = "18:00"
+    apprise_enabled: bool = True  # service URLs come from APPRISE_URLS in the environment
+    ha_enabled: bool = True
     ha_url: str = ""
     notify_service: str = ""
     threshold: int = 80
@@ -71,6 +80,16 @@ class LLMSettings(BaseModel):
     writer_model: str = "claude-sonnet-5"
     daily_limit: int = 300
     firecrawl_daily_credits: int = 60
+    daily_budget_usd: float = 2.0  # 0 = no dollar cap
+    batch_rescore: bool = True  # "Re-score all" via the Message Batches API (half price, slower)
+    scoring_rubric: str = DEFAULT_RUBRIC
+    writer_persona: str = DEFAULT_PERSONA
+    note_language: str = "British English"
+    # $ per million tokens [input, output]; matched by model-ID prefix. Check anthropic.com/pricing.
+    prices: dict[str, list[float]] = Field(default_factory=lambda: {
+        "claude-haiku-4-5": [1.0, 5.0], "claude-sonnet-5": [2.0, 10.0], "claude-sonnet-4-6": [3.0, 15.0],
+        "claude-opus-5-5": [4.0, 20.0], "claude-opus-5": [5.0, 25.0], "claude-fable-5-1": [10.0, 50.0],
+    })
 
 
 class AppSettings(BaseModel):
@@ -104,10 +123,6 @@ SOURCE_KEYS: dict[str, list[str]] = {
 }
 
 
-def env(name: str) -> str:
-    return os.environ.get(name, "").strip()
-
-
 def missing_keys(source: str) -> list[str]:
     return [k for k in SOURCE_KEYS.get(source, []) if not env(k)]
 
@@ -116,9 +131,31 @@ _lock = threading.Lock()
 _cache: AppSettings | None = None
 
 
+def overlay(base: dict, over: dict) -> dict:
+    """Section-level merge: `over` wins per field inside each section (search, filters, llm...), so
+    fields added in newer versions keep their defaults, while lists and dicts such as category
+    weights are replaced whole. Sources merge per source so new ones appear for existing installs."""
+    merged = dict(base)
+    for key, value in (over or {}).items():
+        if key == "sources" and isinstance(value, dict):
+            merged[key] = {**base.get(key, {}), **value}
+        elif isinstance(value, dict) and isinstance(base.get(key), dict):
+            merged[key] = {**base[key], **value}
+        else:
+            merged[key] = value
+    return merged
+
+
+def _load_yaml(path: Path) -> dict:
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
 def defaults() -> AppSettings:
-    with open(DEFAULTS_PATH) as f:
-        return AppSettings.model_validate(yaml.safe_load(f))
+    data = _load_yaml(DEFAULTS_PATH)
+    if LOCAL_PATH.exists():
+        data = overlay(data, _load_yaml(LOCAL_PATH))
+    return AppSettings.model_validate(data)
 
 
 def get_settings() -> AppSettings:
@@ -128,15 +165,27 @@ def get_settings() -> AppSettings:
             with session() as s:
                 row = s.get(Setting, "settings")
             base = defaults()
-            if row is None:
-                _cache = base
-            else:
-                merged = base.model_dump()
-                merged.update(row.value)
-                # sources added in newer defaults should appear for existing installs
-                merged["sources"] = {**base.model_dump()["sources"], **row.value.get("sources", {})}
-                _cache = AppSettings.model_validate(merged)
+            _cache = base if row is None else AppSettings.model_validate(overlay(base.model_dump(), row.value))
         return _cache.model_copy(deep=True)
+
+
+def cached_settings() -> AppSettings:
+    """Shared, read-only settings for hot paths like template filters - never mutate the result."""
+    return _cache or (get_settings() and _cache)
+
+
+def currency() -> str:
+    return cached_settings().search.currency_symbol
+
+
+def categories(settings: AppSettings) -> list[str]:
+    cats = [c for c in settings.filters.category_weights if c != NOT_RELEVANT] or list(DEFAULT_CATEGORIES)
+    return [*cats, NOT_RELEVANT]
+
+
+def settings_saved() -> bool:
+    with session() as s:
+        return s.get(Setting, "settings") is not None
 
 
 def save_settings(new: AppSettings) -> None:

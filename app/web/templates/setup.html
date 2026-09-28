@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Get started · Job Scout{% endblock %}
+{% block main_class %}settings-layout setup{% endblock %}
+{% block content %}
+<div class="settings">
+  <div class="page-head">
+    <h1>Get started</h1>
+    <p class="muted">Four quick steps. Everything here can be changed later under Settings, and nothing is collected until you finish.</p>
+  </div>
+
+  <section class="card">
+    <h2><span class="step">1</span> Connect services</h2>
+    <p class="muted">Add keys for the services you want to <code>.env</code> (copy <code>.env.example</code>), then restart. Sources whose keys are missing simply stay off. You need at least an Anthropic key for scoring; Adzuna and Reed are free.</p>
+    {% include "_integrations.html" %}
+  </section>
+
+  <section id="profile" class="card">
+    <h2><span class="step">2</span> Tell it about you</h2>
+    <p class="muted">Jobs are scored against this. Bullet points work best: skills, projects, what you want and what you don't. Replace every <code>[placeholder]</code>.</p>
+    <form hx-post="/settings/profile" hx-target="find .result">
+      <textarea name="profile_md" rows="10" spellcheck="true" aria-label="Profile">{{ s.profile_md }}</textarea>
+      <input type="hidden" name="profile_mode" value="{{ s.profile_mode }}">
+      <div class="form-foot"><button class="btn primary">Save profile</button><span class="result"></span></div>
+    </form>
+    <form method="post" action="/settings/cv" enctype="multipart/form-data" class="upload">
+      <input type="hidden" name="next" value="/setup#profile">
+      <label>CV <span class="muted">(optional - PDF, DOCX, Markdown or text)</span> <input type="file" name="cv" accept=".pdf,.docx,.md,.txt" required></label>
+      <button class="btn">{{ 'Replace CV' if s.cv_filename else 'Upload CV' }}</button>
+      {% if s.cv_filename %}<span class="chip ok">{{ s.cv_filename }} uploaded</span>{% endif %}
+    </form>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">3</span> Where to look</h2>
+    <form hx-post="/settings/search" hx-target="find .result">
+      <label>Towns or postcodes to search around <span class="muted">(one per line: <code>Town, radius in miles</code>)</span>
+        <textarea name="centres" rows="4">{% for c in s.search.centres %}{{ c.name }}, {{ c.radius_mi|round|int }}
+{% endfor %}</textarea>
+      </label>
+      <div class="grid-3">
+        <label class="check"><input type="checkbox" name="include_remote" value="true" {{ 'checked' if s.search.include_remote }}> Include fully remote roles</label>
+        <label>Country code <span class="muted">(gb, us, de…)</span><input name="country" value="{{ s.search.country }}" maxlength="2" class="narrow"></label>
+        <label>Minimum salary <span class="muted">(0 = any)</span><input type="number" name="min_salary" value="{{ s.search.min_salary }}" min="0" step="1000"></label>
+      </div>
+      <label>Search terms <span class="muted">(one per line)</span>
+        <textarea name="queries" rows="6">{{ s.search.queries|join('\n') }}</textarea></label>
+      {# fields this short form doesn't show, sent back unchanged #}
+      <input type="hidden" name="remote_penalty" value="{{ s.search.remote_penalty }}">
+      <input type="hidden" name="max_age_days" value="{{ s.search.max_age_days }}">
+      <input type="hidden" name="country_name" value="{{ s.search.country_name }}">
+      <input type="hidden" name="currency_symbol" value="{{ s.search.currency_symbol }}">
+      <textarea name="board_queries" hidden>{{ s.search.board_queries|join('\n') }}</textarea>
+      <textarea name="discovery_queries" hidden>{{ s.search.discovery_queries|join('\n') }}</textarea>
+      <textarea name="academic_queries" hidden>{{ s.search.academic_queries|join('\n') }}</textarea>
+      <div class="form-foot"><button class="btn primary">Save search area</button><span class="result"></span></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">4</span> Choose sources</h2>
+    <form hx-post="/settings/sources" hx-target="find .result">
+      {% include "_sources_table.html" %}
+      <div class="form-foot"><button class="btn primary">Save sources</button><span class="result"></span></div>
+    </form>
+  </section>
+
+  <form method="post" action="/setup/done" class="setup-done">
+    <button class="btn primary">Finish and start searching</button>
+    <span class="muted small">The first sources run within a minute or two.</span>
+  </form>
+</div>
+{% endblock %}

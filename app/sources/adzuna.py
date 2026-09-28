@@ -1,4 +1,7 @@
-"""Adzuna UK search API (free key: developer.adzuna.com). Aggregates many boards incl. agency sites."""
+"""Adzuna search API (free key: developer.adzuna.com). Aggregates many boards incl. agency sites.
+
+Covers ~20 countries; the country code comes from Settings → Search area.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +10,7 @@ from datetime import datetime
 from ..config import AppSettings, env
 from .base import RawJob, Source, http_client, log
 
-API = "https://api.adzuna.com/v1/api/jobs/gb/search/{page}"
+API = "https://api.adzuna.com/v1/api/jobs/{country}/search/{page}"
 MI_TO_KM = 1.609
 
 
@@ -32,7 +35,8 @@ class Adzuna(Source):
             searches += [
                 {**where, "category": "it-jobs", "_page": 1},
                 {**where, "category": "it-jobs", "_page": 2},
-                {**where, "what_or": "software firmware embedded electronics FPGA cryptography security developer programmer", "_page": 1},
+                {**where, "_page": 1,
+                 "what_or": "software firmware embedded electronics FPGA cryptography security developer programmer"},
                 {**where, "what_or": "graduate junior trainee apprentice entry", "category": "it-jobs", "_page": 1},
             ]
         if settings.search.include_remote:
@@ -42,10 +46,11 @@ class Adzuna(Source):
         with http_client() as client:
             for s in searches:
                 page = s.pop("_page")
-                r = client.get(API.format(page=page), params={**base, **s})
+                r = client.get(API.format(country=settings.search.country.lower() or "gb", page=page), params={**base, **s})
                 if r.status_code != 200:
+                    # never raise_for_status() here: its message includes the URL, and the key is in the query
                     log.warning("adzuna %s -> %s %s", s, r.status_code, r.text[:200])
-                    r.raise_for_status()
+                    raise RuntimeError(f"Adzuna HTTP {r.status_code}: {r.text[:120]}")
                 for it in r.json().get("results", []):
                     jobs.append(self._parse(it))
         return jobs

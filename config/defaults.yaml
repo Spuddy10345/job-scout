@@ -1,75 +1,78 @@
-# Seed settings. Everything here is editable from the Settings page; once saved,
-# the database copy wins. Delete data/jobs.db (or use "Reset to defaults") to reseed.
+# Starting settings for a fresh install. Everything here is editable from the Settings page;
+# once you save there, the database copy wins ("Reset all settings" reseeds from these files).
+#
+# Don't edit this file for your own search - copy it to config/local.yaml (gitignored) and change
+# that instead. local.yaml is layered on top of this file section by section.
 
 profile_mode: both          # both | profile | cv
 
+# Bullet points work best. Replace every [placeholder] - bracketed text is ignored by the AI.
 profile_md: |
-  - BSc (Hons) Software Engineering, graduated 2026 — [university, grade]
-  - Dissertation: post-quantum cryptography — [topic, e.g. benchmarking ML-KEM / ML-DSA vs classical schemes]
-  - Languages: Python, [Java, C, TypeScript…]
-  - Building an MCP policy gateway: an authorising reverse-proxy for AI tool servers (capability tokens, per-tool rules, audit log, prompt-injection demo)
-  - Run a home lab: Home Assistant, Docker, Tailscale, Raspberry Pi, self-hosted services
-  - Interested in: security / cryptography, backend engineering, AI tooling, embedded & hardware
-  - Open to: graduate schemes, junior dev, IT support, QA/test, data, technician roles — anything hands-on with computers
-  - Based in Cardiff, happy to commute across South Wales and to Bristol; open to remote
+  - [Degree / bootcamp / self-taught], [year] — [grade or notable result]
+  - Languages and tools: [Python, TypeScript, SQL, Docker…]
+  - Projects: [one line each - what you built, and one result or number]
+  - Experience: [internships, part-time jobs, volunteering - anything hands-on]
+  - Interested in: [backend, data, security, DevOps, embedded…]
+  - Not interested in: [sales, pure support, anything requiring 3+ years…]
+  - Open to: graduate schemes, junior developer, QA/test, data, IT support and technician roles
+  - Based in [town], happy to commute about [N] miles; open to remote
 
 search:
+  # Lat/lon are looked up automatically when you add a centre in Settings.
   centres:
-    - {name: Cardiff, lat: 51.4816, lon: -3.1791, radius_mi: 25}
-    - {name: Swansea, lat: 51.6214, lon: -3.9436, radius_mi: 15}
-    - {name: Bristol, lat: 51.4545, lon: -2.5879, radius_mi: 15}
+    - {name: London, lat: 51.5072, lon: -0.1276, radius_mi: 15}
+    - {name: Manchester, lat: 53.4808, lon: -2.2426, radius_mi: 20}
   include_remote: true
   remote_penalty: 5
   min_salary: 0
   max_age_days: 21
+  country: gb                 # Adzuna country code (gb, us, de, fr, au, ca…); SmartRecruiters filter
+  country_name: United Kingdom  # Workday search text
+  currency_symbol: "£"
+  # Reed (and similar APIs) - one search per term per centre.
   queries:
     - software engineer
     - software developer
     - graduate developer
     - junior developer
     - python developer
-    - cyber security
-    - cryptography
-    - security analyst
-    - IT support
-    - IT technician
     - data analyst
-    - embedded software
-    - electronics engineer
-    - test engineer
+    - cyber security
     - devops
-    - machine learning
+    - test engineer
+    - IT support
     - web developer
-    - network engineer
   # Scraped boards cost Firecrawl credits per page, so they use a shorter list.
   board_queries:
     - graduate software
     - junior developer
-    - IT support
-    - cyber security
     - data analyst
-  # Brave web searches for postings the boards miss (civil service, company sites, schemes).
+    - IT support
+  # Brave web searches for postings the boards miss (company sites, graduate schemes, government).
   discovery_queries:
-    - graduate software engineer Cardiff
-    - junior software developer Cardiff OR Newport
-    - graduate cyber security Cardiff OR Newport OR Bristol
-    - cryptography engineer UK graduate
-    - post-quantum cryptography engineer jobs UK
-    - site:civilservicejobs.service.gov.uk digital Cardiff OR Newport
-    - site:civilservicejobs.service.gov.uk data Cardiff OR Newport OR Bristol
-    - graduate scheme technology Wales
-    - embedded software graduate Bristol OR Cardiff
-    - IT apprenticeship Cardiff
+    - graduate software engineer London
+    - junior software developer Manchester
+    - graduate scheme technology UK 2027
+    - site:civilservicejobs.service.gov.uk digital graduate
+  # jobs.ac.uk keyword searches (university and research roles).
+  academic_queries:
+    - software engineer
+    - research software
+    - developer
+    - data
+    - IT support
 
 filters:
   seniority_words: [senior, lead, principal, head of, director, manager, architect, staff engineer, sr.]
-  exclude_keywords: [sales executive, recruitment consultant, commission only, field sales, teacher, nurse, driver]
+  exclude_keywords: [sales executive, recruitment consultant, commission only, field sales]
   max_years_experience: 4
+  # The AI sorts every job into one of these categories (plus "Not-relevant"), and the number is
+  # added to its fit score. Rename, add or remove categories to suit your search.
   category_weights:
-    Security-Crypto: 8
     SWE: 5
+    Security: 3
     AI-Data: 3
-    Hardware-Embedded: 3
+    Hardware-Embedded: 0
     IT-Support: 0
     Adjacent: -5
 
@@ -77,7 +80,7 @@ sources:
   adzuna:        {enabled: true,  interval_hours: 6}
   reed:          {enabled: true,  interval_hours: 6}
   jobs_ac_uk:    {enabled: true,  interval_hours: 12}
-  findajob:      {enabled: true,  interval_hours: 12}
+  findajob:      {enabled: false, interval_hours: 12}
   indeed:        {enabled: false, interval_hours: 24}
   gumtree:       {enabled: false, interval_hours: 24}
   totaljobs:     {enabled: false, interval_hours: 24}
@@ -87,35 +90,30 @@ sources:
   brave:         {enabled: true,  interval_hours: 24}
   watchlist:     {enabled: true,  interval_hours: 24}
 
+# Employers checked directly through their applicant-tracking system's public API.
 # type: greenhouse | lever | ashby | smartrecruiters | workday | page
-# id:   board token / company id / "tenant/wdN/site" / careers URL for "page"
+# id:   board token / company id / "tenant/wdN/site" (from the careers URL) / careers URL for "page"
 watchlist:
   - {name: Monzo, type: greenhouse, id: monzo}
-  - {name: Airbus, type: workday, id: ag/wd3/Airbus}
-  - {name: Thales UK, type: workday, id: thales/wd3/Careers}
-  - {name: General Dynamics UK, type: page, id: "https://www.generaldynamics.uk.com/careers"}
-  - {name: KLA, type: workday, id: kla/wd1/Search}
-  - {name: IQE, type: page, id: "https://www.iqep.com/careers/"}
-  - {name: Admiral Group, type: page, id: "https://admiraljobs.co.uk/jobs"}
-  - {name: Deloitte UK, type: page, id: "https://apply.deloitte.com/careers/SearchJobs/cardiff"}
-  - {name: Office for National Statistics, type: page, id: "https://careers.ons.gov.uk/vacancies"}
-  - {name: Cardiff University, type: page, id: "https://jobs.cardiff.ac.uk/"}
-  - {name: Rolls-Royce, type: workday, id: rollsroyce/wd3/professional}
-  - {name: Graphcore, type: greenhouse, id: graphcore}
-  - {name: XMOS, type: page, id: "https://www.xmos.com/careers/"}
-  - {name: NCSC / GCHQ, type: page, id: "https://www.gchq-careers.co.uk/vacancies.html"}
+  - {name: Wise, type: greenhouse, id: wise}
+  - {name: Deliveroo, type: greenhouse, id: deliveroo}
+  - {name: GoCardless, type: greenhouse, id: gocardless}
+  - {name: Spotify, type: lever, id: spotify}
+  - {name: Synthesia, type: ashby, id: synthesia}
 
 alerts:
   enabled: true
-  ha_url: ""
-  notify_service: ""          # e.g. mobile_app_fins_iphone
+  ha_url: ""                  # e.g. http://homeassistant.local:8123
+  notify_service: ""          # e.g. mobile_app_your_phone
   threshold: 80
   quiet_start: "23:00"
   quiet_end: "08:00"
-  public_url: "http://pi:8080"
+  public_url: "http://localhost:8080"   # how links in alerts reach this app
 
 llm:
   score_model: claude-haiku-4-5
   writer_model: claude-sonnet-5
   daily_limit: 300
   firecrawl_daily_credits: 60
+  # scoring_rubric and writer_persona default to the built-in text (see app/prompts.py);
+  # override them here or in Settings → AI.

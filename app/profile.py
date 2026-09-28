@@ -6,6 +6,7 @@ import io
 from pathlib import Path
 
 from .config import AppSettings
+from .prompts import DEFAULT_PERSONA
 
 
 def extract_cv_text(filename: str, data: bytes) -> str:
@@ -33,7 +34,7 @@ def profile_text(settings: AppSettings) -> str:
     if mode in ("both", "cv") and settings.cv_text.strip():
         parts.append("CV:\n" + settings.cv_text.strip()[:15000])
     if not parts:  # fall back to whichever exists
-        parts.append(settings.profile_md.strip() or settings.cv_text.strip() or "New software engineering graduate.")
+        parts.append(settings.profile_md.strip() or settings.cv_text.strip() or f"Candidate: {DEFAULT_PERSONA}.")
     weights = ", ".join(f"{k} {v:+d}" for k, v in settings.filters.category_weights.items())
     parts.append(f"Candidate's category preferences (applied separately, for context only): {weights}")
     return "\n\n".join(parts)

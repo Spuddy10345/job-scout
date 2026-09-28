@@ -1,0 +1,14 @@
+<table class="grid integrations">
+  <thead><tr><th>Service</th><th>Used for</th><th>Environment variable</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for i in integrations() %}
+  <tr>
+    <td><b>{% if i.url %}<a href="{{ i.url }}" target="_blank" rel="noopener noreferrer">{{ i.name }} ↗</a>{% else %}{{ i.name }}{% endif %}</b></td>
+    <td class="muted small">{{ i.purpose }}</td>
+    <td>{% for k in i.envs %}<code>{{ k }}</code>{{ ', ' if not loop.last }}{% endfor %}</td>
+    <td>{% if i.ready %}<span class="chip ok">set</span>{% else %}<span class="chip">not set</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="muted small">Keys are read from <code>.env</code> (or <code>NAME_FILE</code> secret files) when the app starts and are never shown here. After adding or rotating one, restart the app (<code>docker compose up -d --force-recreate</code>). See <a href="https://github.com/Spuddy10345/job-scout#rotating-keys" target="_blank" rel="noopener noreferrer">Rotating keys</a>.</p>

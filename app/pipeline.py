@@ -11,10 +11,11 @@ from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy.exc import OperationalError
-from sqlmodel import or_, select
+from sqlmodel import col, or_, select
 
 from . import enrich, geo, llm, notify
-from .config import AppSettings, get_settings, missing_keys
+from .config import AppSettings, get_kv, get_settings, missing_keys, set_kv
+from .credentials import redact
 from .db import Job, SourceRun, session, utcnow
 from .profile import profile_text
 from .sources import SOURCES, RawJob
@@ -24,10 +25,15 @@ log = logging.getLogger("jobscout.pipeline")
 _ingest_lock = threading.Lock()
 _score_lock = threading.Lock()
 _source_locks: dict[str, threading.Lock] = {}
+MAX_SCORE_ATTEMPTS = 3
+BATCH_MIN_JOBS = 20  # below this, re-scoring synchronously is quick enough
+BATCHES_KEY = "ai_batches"
 
 TRACKING = re.compile(r"^(utm_|fbclid|gclid|mc_|ref$|refId|trackingId|src$|source$)", re.I)
 COMPANY_SUFFIX = re.compile(r"\b(ltd|limited|plc|llp|inc|group|holdings|uk|the|co)\b\.?", re.I)
-MONEY = re.compile(r"£\s*(\d+(?:[.,]\d+)*)\s*(k)?", re.I)
+NUM = r"(\d+(?:[.,]\d+)*)"
+# "£25,000 - £30,000", "£28k", "£30-35k", "£30k to 35k" - the second figure's "k" applies to a bare first one.
+MONEY = re.compile(rf"[£$€]\s*{NUM}\s*(k)?(?:\s*(?:-|–|—|to)\s*[£$€]?\s*{NUM}\s*(k)?)?", re.I)
 
 
 # ---------------------------------------------------------------- normalisation
@@ -50,16 +56,24 @@ def fingerprint(title: str, company: str, location: str, url: str) -> str:
     c = _norm(COMPANY_SUFFIX.sub(" ", company or ""))
     loc = _norm((location or "").split(",")[0])
     key = f"{t}|{c}|{loc}" if c else f"{t}|{clean_url(url)}"
-    return hashlib.sha1(key.encode()).hexdigest()[:20]
+    return hashlib.sha1(key.encode(), usedforsecurity=False).hexdigest()[:20]
 
 
 def parse_salary(text: str) -> tuple[float | None, float | None]:
     if not text:
         return None, None
     vals = []
-    for num, k in MONEY.findall(text):
-        v = float(num.replace(",", ""))
-        vals.append(v * 1000 if k else v)
+    for a, ak, b, bk in MONEY.findall(text):
+        lo = float(a.replace(",", ""))
+        hi = float(b.replace(",", "")) if b else None
+        if hi is not None:
+            if bk and not ak and lo < 1000:
+                ak = bk
+            if ak and not bk and hi < 1000:
+                bk = ak
+        vals.append(lo * 1000 if ak else lo)
+        if hi is not None:
+            vals.append(hi * 1000 if bk else hi)
     if not vals:
         return None, None
     t = text.lower()
@@ -71,7 +85,8 @@ def parse_salary(text: str) -> tuple[float | None, float | None]:
 # ---------------------------------------------------------------- filters
 
 def _years_required(text: str) -> int | None:
-    m = re.findall(r"(\d{1,2})\s*\+?\s*(?:-|to)?\s*\d{0,2}\s*\+?\s*years?[’'`s]*\s+(?:of\s+)?(?:\w+\s+){0,2}experience", text, re.I)
+    m = re.findall(r"(\d{1,2})\s*\+?\s*(?:-|to)?\s*\d{0,2}\s*\+?\s*years?[’'`s]*\s+(?:of\s+)?(?:\w+\s+){0,2}experience",
+                   text, re.I)
     nums = [int(x) for x in m if 0 < int(x) < 30]
     return min(nums) if nums else None
 
@@ -92,9 +107,12 @@ def apply_filters(job: Job, settings: AppSettings) -> None:
         job.nearest_centre = centre.name if centre else None
         job.distance_mi = round(d, 1) if d is not None else None
         within = any(geo.haversine_mi(job.lat, job.lon, c.lat, c.lon) <= c.radius_mi for c in sch.centres)
-        if not within and not job.remote:
-            reason = f"outside search area ({job.distance_mi:.0f} mi from {job.nearest_centre})"
-    if job.remote and not sch.include_remote and job.lat is None:
+        if not within:
+            if not job.remote:
+                reason = f"outside search area ({job.distance_mi:.0f} mi from {job.nearest_centre})"
+            elif not sch.include_remote:
+                reason = "remote roles switched off"
+    elif job.remote and not sch.include_remote:
         reason = "remote roles switched off"
 
     if not reason:
@@ -134,9 +152,11 @@ def ingest(raw_jobs: list[RawJob], settings: AppSettings) -> dict[str, int]:
     with _ingest_lock, session() as s:
         batch: dict[str, Job] = {}
         for r in raw_jobs:
-            if not r.title or not r.url:
-                continue
-            url = clean_url(r.url)
+            url = clean_url(r.url or "")
+            if not r.title or not url.startswith(("http://", "https://")):
+                continue  # model-extracted or scraped links could be anything, e.g. javascript:
+            if r.apply_url and not r.apply_url.startswith(("http://", "https://")):
+                r.apply_url = ""
             fp = fingerprint(r.title, r.company, r.location, url)
             job = batch.get(fp) or s.exec(select(Job).where(or_(Job.fingerprint == fp, Job.url == url))).first()
             src = {"source": r.source, "url": url, "apply_url": r.apply_url, "seen_at": now.isoformat(timespec="seconds")}
@@ -174,7 +194,8 @@ def ingest(raw_jobs: list[RawJob], settings: AppSettings) -> dict[str, int]:
 # ---------------------------------------------------------------- scoring
 
 def _score_hash(job: Job, profile: str) -> str:
-    return hashlib.sha1(f"{job.title}\n{job.company}\n{job.description}\n{profile}".encode()).hexdigest()[:16]
+    blob = f"{job.title}\n{job.company}\n{job.description}\n{profile}".encode()
+    return hashlib.sha1(blob, usedforsecurity=False).hexdigest()[:16]
 
 
 def _job_payload(job: Job) -> dict:
@@ -187,7 +208,10 @@ def _job_payload(job: Job) -> dict:
 
 
 def score_job(job: Job, settings: AppSettings, profile: str) -> None:
-    a = llm.score_job(settings, profile, _job_payload(job))
+    apply_assessment(job, settings, llm.score_job(settings, profile, _job_payload(job)), profile)
+
+
+def apply_assessment(job: Job, settings: AppSettings, a: llm.JobAssessment, profile: str) -> None:
     # Web-search results arrive with jumbled titles and no location - take the model's reading of the advert.
     from_search = all(x["source"] == "brave" for x in job.sources)
     if from_search and a.advert_title.strip():
@@ -212,6 +236,7 @@ def score_job(job: Job, settings: AppSettings, profile: str) -> None:
     job.remote = job.remote or a.is_remote
     job.score_hash = _score_hash(job, profile)
     job.scored_at = utcnow()
+    job.score_attempts = 0
 
 
 def score_pending(settings: AppSettings | None = None, max_jobs: int = 500) -> int:
@@ -228,8 +253,10 @@ def score_pending(settings: AppSettings | None = None, max_jobs: int = 500) -> i
             with session() as s:
                 job = s.exec(
                     select(Job)
-                    .where(Job.score == None, Job.filtered_out == False, Job.status != "hidden")  # noqa: E711,E712
-                    .order_by(Job.distance_mi == None, Job.distance_mi, Job.first_seen.desc())  # noqa: E711
+                    .where(Job.score == None, Job.filtered_out == False, Job.status != "hidden",  # noqa: E711,E712
+                           Job.batch_id == "")
+                    .order_by(Job.score_attempts, Job.distance_mi == None, Job.distance_mi,  # noqa: E711
+                              Job.first_seen.desc())
                 ).first()
                 if job is None:
                     break
@@ -243,9 +270,15 @@ def score_pending(settings: AppSettings | None = None, max_jobs: int = 500) -> i
                 except llm.BudgetExceeded as e:
                     log.info("%s", e)
                     break
+                except llm.SYSTEMIC_ERRORS as e:
+                    # outage, rate limit, bad key or model name: not this job's fault - leave it queued
+                    log.warning("scoring paused: %s", redact(str(e)))
+                    break
                 except Exception as e:
-                    log.warning("scoring job %s failed: %s", job.id, e)
-                    job.score, job.why = 0, f"(scoring failed: {e})"
+                    log.warning("scoring job %s failed: %s", job.id, redact(str(e)))
+                    job.score_attempts += 1
+                    if job.score_attempts >= MAX_SCORE_ATTEMPTS:
+                        job.score, job.why = 0, f"(scoring failed: {redact(str(e))})"
                 s.add(job)
                 try:
                     s.commit()
@@ -262,12 +295,89 @@ def score_pending(settings: AppSettings | None = None, max_jobs: int = 500) -> i
 
 
 def rescore_all() -> int:
+    settings = get_settings()
     with session() as s:
-        for job in s.exec(select(Job).where(Job.filtered_out == False)).all():  # noqa: E712
-            job.score = None
+        active = select(Job).where(Job.filtered_out == False, Job.batch_id == "",  # noqa: E712
+                                   col(Job.status).not_in(["hidden", "rejected"]))
+        jobs = s.exec(active).all()
+        for job in jobs:
+            job.score, job.score_attempts = None, 0
             s.add(job)
         s.commit()
+    if settings.llm.batch_rescore and len(jobs) >= BATCH_MIN_JOBS and llm.available():
+        try:
+            return submit_batch(settings, jobs)
+        except Exception as e:  # budget, API trouble - fall back to scoring as usual
+            log.warning("batch submission failed, scoring synchronously: %s", redact(str(e)))
     return score_pending()
+
+
+def submit_batch(settings: AppSettings, jobs: list[Job]) -> int:
+    """Send jobs to the Message Batches API (half price). Only as many as today's call budget allows;
+    the rest stay queued for normal scoring."""
+    room = settings.llm.daily_limit - llm.usage_today()
+    jobs = jobs[:max(room, 0)]
+    if not jobs:
+        raise llm.BudgetExceeded("no AI calls left today")
+    profile = profile_text(settings)
+    batch_id = llm.submit_score_batch(settings, profile, {j.id: _job_payload(j) for j in jobs})
+    with _ingest_lock, session() as s:
+        for job in jobs:
+            job = s.get(Job, job.id)
+            job.batch_id = batch_id
+            s.add(job)
+        s.commit()
+    set_kv(BATCHES_KEY, {**get_kv(BATCHES_KEY, {}), batch_id: {"jobs": len(jobs), "submitted": utcnow().isoformat()}})
+    return len(jobs)
+
+
+def poll_batches() -> int:
+    """Collect finished batches. Jobs whose request failed or expired go back to the normal queue."""
+    pending = get_kv(BATCHES_KEY, {})
+    if not pending or not llm.available():
+        return 0
+    settings = get_settings()
+    profile = profile_text(settings)
+    applied = 0
+    for batch_id in list(pending):
+        try:
+            results = llm.batch_results(settings, batch_id)
+        except Exception as e:
+            log.warning("checking batch %s failed: %s", batch_id, redact(str(e)))
+            continue
+        if results is None:
+            continue  # still processing
+        # Read everything first: recording usage writes to the DB, which mustn't happen while the
+        # transaction below holds SQLite's write lock.
+        results = list(results)
+        with _ingest_lock, session() as s:
+            for job_id, assessment, error in results:
+                job = s.get(Job, job_id)
+                if job is None:
+                    continue
+                if assessment is not None:
+                    apply_assessment(job, settings, assessment, profile)
+                    applied += 1
+                else:
+                    log.info("batch result for job %s: %s", job_id, error)
+                job.batch_id = ""
+                s.add(job)
+            # anything the batch didn't mention goes back to the queue too
+            for job in s.exec(select(Job).where(Job.batch_id == batch_id)).all():
+                job.batch_id = ""
+                s.add(job)
+            s.commit()
+        pending.pop(batch_id)
+        set_kv(BATCHES_KEY, pending)
+        log.info("batch %s done: %d jobs scored", batch_id, applied)
+    if applied:
+        notify.flush_alerts()
+    score_pending()  # pick up anything that failed in the batch
+    return applied
+
+
+def batches_pending() -> int:
+    return sum(b.get("jobs", 0) for b in get_kv(BATCHES_KEY, {}).values())
 
 
 def refilter_all() -> dict[str, int]:
@@ -309,7 +419,7 @@ def run_source(name: str) -> SourceRun:
         log.info("%s: %s", name, stats)
     except Exception as e:
         log.exception("source %s failed", name)
-        run.error = str(e)[:1000]
+        run.error = redact(str(e))[:1000]
     finally:
         run.finished_at = utcnow()
         with session() as s:

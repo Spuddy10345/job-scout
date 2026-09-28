@@ -6,7 +6,7 @@
   <input id="q" type="search" name="q" placeholder="Search title, company, text…" value="{{ p.q or '' }}">
   <select name="category" aria-label="Category">
     <option value="">All categories</option>
-    {% for c in CATEGORIES %}<option {{ 'selected' if p.category == c }}>{{ c }}</option>{% endfor %}
+    {% for c in categories() %}<option {{ 'selected' if p.category == c }}>{{ c }}</option>{% endfor %}
   </select>
   <select name="source" aria-label="Source">
     <option value="">All sources</option>
@@ -36,38 +36,15 @@
   <input type="hidden" name="sort" id="sort" value="{{ p.sort or 'score' }}">
   <input type="hidden" name="dir" id="dir" value="{{ p.dir or '' }}">
 </form>
+<div class="filters-extra">
+  {% with current = p|urlencode %}{% include "_views.html" %}{% endwith %}
+  <button type="button" class="btn small ghost" data-action="help" title="Keyboard shortcuts">Shortcuts <kbd>?</kbd></button>
+</div>
 
 <section id="table" class="table-wrap">
   {% include "_table.html" %}
 </section>
 
 <aside id="drawer" class="drawer" aria-live="polite"></aside>
-<div class="scrim" onclick="closeDrawer()"></div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-function sortBy(col) {
-  const s = document.getElementById('sort'), d = document.getElementById('dir');
-  const ascDefault = ['distance', 'company', 'title'].includes(col);
-  if (s.value === col) d.value = (d.value || (ascDefault ? 'asc' : 'desc')) === 'desc' ? 'asc' : 'desc';
-  else { s.value = col; d.value = ''; }
-  htmx.trigger('#filters', 'change');
-}
-function openJob(id) {
-  htmx.ajax('GET', '/job/' + id, {target: '#drawer'}).then(() => document.body.classList.add('drawer-open'));
-  document.querySelectorAll('tr.sel').forEach(r => r.classList.remove('sel'));
-  document.querySelector('tr[data-id="' + id + '"]')?.classList.add('sel');
-  const u = new URL(location); u.searchParams.set('job', id); history.replaceState(null, '', u);
-}
-function closeDrawer() {
-  document.body.classList.remove('drawer-open');
-  const u = new URL(location); u.searchParams.delete('job'); history.replaceState(null, '', u);
-}
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
-document.addEventListener('DOMContentLoaded', () => { {% if open_job %}openJob({{ open_job|int }});{% endif %} });
-function copyText(id, btn) {
-  navigator.clipboard.writeText(document.getElementById(id).value).then(() => { btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy', 1500); });
-}
-</script>
+<div class="scrim"></div>
 {% endblock %}

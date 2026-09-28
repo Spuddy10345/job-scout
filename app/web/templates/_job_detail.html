@@ -2,7 +2,7 @@
 <div class="drawer-body"><p>Job not found.</p></div>
 {% else %}
 <div class="drawer-head">
-  <button class="icon-btn close" onclick="closeDrawer()" aria-label="Close">✕</button>
+  <button class="icon-btn close" data-action="close-drawer" aria-label="Close">✕</button>
   <div class="drawer-title">
     <span class="score big {{ job.score|score_class }}">{{ job.score if job.score is not none else '…' }}</span>
     <div>
@@ -13,7 +13,7 @@
       </div>
       <div class="facts">
         {% if job.salary_text or job.salary_min %}<span>💷 {{ job.salary_text or (job.salary_min|money) }}</span>{% endif %}
-        {% if job.category %}<span class="cat cat-{{ job.category|lower }}">{{ job.category }}</span>{% endif %}
+        {% if job.category %}<span class="cat {{ cat_class(job.category) }}">{{ job.category }}</span>{% endif %}
         {% if job.seniority_fit %}<span class="chip">{{ job.seniority_fit }}</span>{% endif %}
         {% if job.posted_at %}<span class="muted">posted {{ job.posted_at|timeago }}</span>{% endif %}
         <span class="muted">found {{ job.first_seen|timeago }}</span>
@@ -25,7 +25,8 @@
       <select name="status">{% for s in STATUSES %}<option value="{{ s }}" {{ 'selected' if job.status == s }}>{{ s|capitalize }}</option>{% endfor %}</select>
     </label>
     <div class="actions">
-      <a class="btn primary" href="{{ job.apply_url or job.url }}" target="_blank" rel="noopener">Open advert ↗</a>
+      {% set advert = (job.apply_url|safe_url) or (job.url|safe_url) %}
+      {% if advert %}<a class="btn primary" href="{{ advert }}" target="_blank" rel="noopener noreferrer">Open advert ↗</a>{% endif %}
       <button type="button" class="btn" hx-post="/job/{{ job.id }}/status" hx-vals='{"status": "hidden"}' hx-target="#drawer">Hide</button>
     </div>
   </form>
@@ -52,8 +53,8 @@
     {% for label, guide in guides %}{% if guide %}<p class="guide"><b>{{ label }}:</b> {{ guide }}</p>{% endif %}{% endfor %}
     <div class="links">
       {% for s in job.sources %}
-      <a href="{{ s.url }}" target="_blank" rel="noopener">{{ SOURCES[s.source].label if s.source in SOURCES else s.source }} advert ↗</a>
-      {% if s.apply_url %}<a href="{{ s.apply_url }}" target="_blank" rel="noopener">Apply page ↗</a>{% endif %}
+      {% if s.url|safe_url %}<a href="{{ s.url|safe_url }}" target="_blank" rel="noopener noreferrer">{{ SOURCES[s.source].label if s.source in SOURCES else s.source }} advert ↗</a>{% endif %}
+      {% if s.apply_url|safe_url %}<a href="{{ s.apply_url|safe_url }}" target="_blank" rel="noopener noreferrer">Apply page ↗</a>{% endif %}
       {% endfor %}
     </div>
   </section>
@@ -67,7 +68,7 @@
         <span class="chip">{{ c.kind }}</span>
         {% if c.kind == 'email' %}<a href="mailto:{{ c.value }}?subject={{ ('Application: ' ~ job.title)|urlencode }}">{{ c.value }}</a>
         {% elif c.kind == 'phone' %}<a href="tel:{{ c.value|replace(' ', '') }}">{{ c.value }}</a>
-        {% elif c.kind == 'url' %}<a href="{{ c.value }}" target="_blank" rel="noopener">{{ c.value }}</a>
+        {% elif c.kind == 'url' and c.value|safe_url %}<a href="{{ c.value|safe_url }}" target="_blank" rel="noopener noreferrer">{{ c.value }}</a>
         {% else %}{{ c.value }}{% endif %}
         {% if c.label %}<span class="muted">- {{ c.label }}</span>{% endif %}
       </li>
@@ -75,8 +76,8 @@
     </ul>
     {% else %}<p class="muted small">No direct contact details in the advert.</p>{% endif %}
     <div class="links">
-      {% if job.company_website %}<a href="{{ job.company_website }}" target="_blank" rel="noopener">Company website ↗</a>{% endif %}
-      {% if job.company_linkedin %}<a href="{{ job.company_linkedin }}" target="_blank" rel="noopener">LinkedIn page ↗</a>{% endif %}
+      {% if job.company_website|safe_url %}<a href="{{ job.company_website|safe_url }}" target="_blank" rel="noopener noreferrer">Company website ↗</a>{% endif %}
+      {% if job.company_linkedin|safe_url %}<a href="{{ job.company_linkedin|safe_url }}" target="_blank" rel="noopener noreferrer">LinkedIn page ↗</a>{% endif %}
       {% if job.company %}
       <a href="https://find-and-update.company-information.service.gov.uk/search/companies?q={{ job.company|urlencode }}" target="_blank" rel="noopener">Companies House ↗</a>
       <a href="https://www.glassdoor.co.uk/Search/results.htm?keyword={{ job.company|urlencode }}" target="_blank" rel="noopener">Glassdoor ↗</a>

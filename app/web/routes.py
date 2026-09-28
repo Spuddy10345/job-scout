@@ -1,25 +1,41 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from markupsafe import escape
 from sqlmodel import col, func, or_, select
 
 from .. import enrich, llm, notify, pages, pipeline, scheduler
-from ..config import (AppSettings, Centre, SourceSettings, WatchEntry, get_kv, get_settings, missing_keys,
-                      reset_settings, save_settings, set_kv)
+from ..auth import is_local_host, password, password_ok, safe_next
+from ..config import (
+    Centre,
+    SourceSettings,
+    WatchEntry,
+    cached_settings,
+    categories,
+    currency,
+    get_kv,
+    get_settings,
+    missing_keys,
+    reset_settings,
+    save_settings,
+    set_kv,
+    settings_saved,
+)
+from ..credentials import env, redact
 from ..db import DATA_DIR, STATUSES, Job, JobEvent, SourceRun, session, utcnow
 from ..profile import extract_cv_text, profile_text
+from ..prompts import DEFAULT_PERSONA, DEFAULT_RUBRIC
 from ..sources import SOURCES
 
 router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
-CATEGORIES = ["SWE", "Security-Crypto", "AI-Data", "Hardware-Embedded", "IT-Support", "Adjacent", "Not-relevant"]
 SORTS = {
     "score": Job.score, "posted": Job.posted_at, "seen": Job.first_seen, "salary": Job.salary_max,
     "distance": Job.distance_mi, "company": Job.company, "title": Job.title,
@@ -69,15 +85,27 @@ def score_class(score: int | None) -> str:
 
 def local(dt: datetime | None) -> datetime | None:
     """DB times are naive UTC; show them in the server's local time zone."""
-    return dt.replace(tzinfo=timezone.utc).astimezone() if dt else dt
+    return dt.replace(tzinfo=UTC).astimezone() if dt else dt
 
 
 def money(v: float | None) -> str:
-    return f"£{v / 1000:.0f}k" if v else ""
+    return f"{currency()}{v / 1000:.0f}k" if v else ""
 
 
-templates.env.filters.update(local=local, timeago=timeago, score_class=score_class, money=money)
-templates.env.globals.update(STATUSES=STATUSES, CATEGORIES=CATEGORIES, SOURCES=SOURCES, METHOD_LABEL=METHOD_LABEL)
+def safe_url(url: str | None) -> str:
+    """Only http(s) links from scraped or model-written data - never javascript: or data:."""
+    url = (url or "").strip()
+    return url if urlsplit(url).scheme.lower() in ("http", "https") else ""
+
+
+templates.env.filters.update(local=local, timeago=timeago, score_class=score_class, money=money, safe_url=safe_url)
+def cat_class(name: str | None) -> str:
+    cats = categories(cached_settings())[:-1]  # "Not-relevant" stays grey
+    return f"cat-c{cats.index(name) % 6}" if name in cats else ""
+
+
+templates.env.globals.update(STATUSES=STATUSES, SOURCES=SOURCES, METHOD_LABEL=METHOD_LABEL,
+                             categories=lambda: categories(cached_settings()), cat_class=cat_class)
 
 
 def _counts() -> dict:
@@ -89,6 +117,7 @@ def _counts() -> dict:
     return {
         "total": total, "pending": pending, "strong": strong,
         "llm_used": llm.usage_today(), "llm_limit": settings.llm.daily_limit,
+        "cost_today": llm.cost_today(), "cost_month": llm.cost_month(), "batched": pipeline.batches_pending(),
         "fc_used": pages.credits_today(), "fc_limit": settings.llm.firecrawl_daily_credits,
         "llm_ok": llm.available(),
         "placeholders": settings.profile_mode != "cv" and "[" in settings.profile_md,
@@ -96,12 +125,48 @@ def _counts() -> dict:
 
 
 def render(request: Request, name: str, **ctx) -> HTMLResponse:
-    return templates.TemplateResponse(request, name, {"counts": _counts(), **ctx})
+    open_access = not password() and not is_local_host(request)
+    return templates.TemplateResponse(request, name, {"counts": _counts(), "open_access": open_access,
+                                                       "auth_enabled": bool(password()), **ctx})
+
+
+# ---------------------------------------------------------------- login
+
+@router.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, next: str = "/"):
+    if not password() or request.session.get("auth"):
+        return RedirectResponse(safe_next(next), status_code=303)
+    return templates.TemplateResponse(request, "login.html", {"next": safe_next(next), "error": ""})
+
+
+@router.post("/login", response_class=HTMLResponse)
+def login(request: Request, password_: str = Form("", alias="password"), next: str = Form("/")):
+    if password_ok(password_):
+        request.session.clear()
+        request.session["auth"] = True
+        return RedirectResponse(safe_next(next), status_code=303)
+    return templates.TemplateResponse(request, "login.html", {"next": safe_next(next), "error": "Wrong password"},
+                                      status_code=401)
+
+
+@router.post("/logout")
+def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/login", status_code=303)
 
 
 # ---------------------------------------------------------------- jobs
 
-def _query_jobs(p: dict) -> tuple[list[Job], int]:
+PAGE_SIZE = 100
+NON_FILTER_PARAMS = ("job", "offset", "limit")
+
+
+def filter_params(query_params) -> dict:
+    """The job-list filters from a query string, without paging/drawer state or empty values."""
+    return {k: v for k, v in query_params.items() if v not in ("", None) and k not in NON_FILTER_PARAMS}
+
+
+def _job_filter(p: dict):
     stmt = select(Job)
     if p.get("filtered") == "only":
         stmt = stmt.where(Job.filtered_out == True)  # noqa: E712
@@ -131,24 +196,35 @@ def _query_jobs(p: dict) -> tuple[list[Job], int]:
 
     sort = SORTS.get(p.get("sort") or "score", Job.score)
     desc = (p.get("dir") or ("asc" if p.get("sort") in ("distance", "company", "title") else "desc")) == "desc"
-    order = [sort.is_(None), sort.desc() if desc else sort.asc(), Job.first_seen.desc()]
+    return stmt, [sort.is_(None), sort.desc() if desc else sort.asc(), Job.first_seen.desc(), Job.id.desc()]
+
+
+def _query_jobs(p: dict, offset: int = 0, limit: int = PAGE_SIZE) -> tuple[list[Job], int]:
+    stmt, order = _job_filter(p)
     with session() as s:
         total = s.exec(select(func.count()).select_from(stmt.subquery())).one()
-        rows = s.exec(stmt.order_by(*order).limit(int(p.get("limit") or 300))).all()
+        rows = s.exec(stmt.order_by(*order).offset(max(offset, 0)).limit(min(max(limit, 1), 5000))).all()
     return list(rows), total
+
+
+def _int(value, default: int = 0) -> int:
+    return int(value) if str(value or "").isdigit() else default
 
 
 @router.get("/", response_class=HTMLResponse)
 def jobs_page(request: Request):
+    if not settings_saved() and not get_kv("setup_done"):
+        return RedirectResponse("/setup", status_code=303)
     prev = get_kv("last_visit")
     since = request.cookies.get("since") or prev
     # a visit more than 30 min after the last one starts a new "since" window
     if not prev or datetime.fromisoformat(prev) < utcnow() - timedelta(minutes=30):
         since = prev
     set_kv("last_visit", utcnow().isoformat())
-    params = dict(request.query_params)
-    rows, total = _query_jobs(params)
-    resp = render(request, "jobs.html", jobs=rows, total=total, p=params, since=since, open_job=params.get("job"))
+    p = filter_params(request.query_params)
+    rows, total = _query_jobs(p)
+    resp = render(request, "jobs.html", jobs=rows, total=total, p=p, since=since, next_offset=len(rows),
+                  open_job=request.query_params.get("job"), views=get_kv("saved_views", {}))
     if since:
         resp.set_cookie("since", since, max_age=1800)
     return resp
@@ -156,11 +232,14 @@ def jobs_page(request: Request):
 
 @router.get("/jobs/table", response_class=HTMLResponse)
 def jobs_table(request: Request):
-    params = {k: v for k, v in request.query_params.items() if v not in ("", None)}
-    rows, total = _query_jobs(params)
-    resp = templates.TemplateResponse(request, "_table.html", {"jobs": rows, "total": total, "p": params,
+    return table_response(request, filter_params(request.query_params))
+
+
+def table_response(request: Request, p: dict) -> HTMLResponse:
+    rows, total = _query_jobs(p)
+    resp = templates.TemplateResponse(request, "_table.html", {"jobs": rows, "total": total, "p": p, "next_offset": len(rows),
                                                                 "since": request.cookies.get("since")})
-    resp.headers["HX-Push-Url"] = "/?" + urlencode(params) if params else "/"
+    resp.headers["HX-Push-Url"] = "/?" + urlencode(p) if p else "/"
     return resp
 
 
@@ -214,7 +293,7 @@ def job_cover(request: Request, job_id: int):
             s.commit()
             error = ""
         except Exception as e:
-            error = str(e)
+            error = redact(str(e))
     return templates.TemplateResponse(request, "_cover.html", {"job": job, "error": error})
 
 
@@ -233,7 +312,7 @@ def job_rescore(request: Request, job_id: int, fetch: bool = Form(False)):
             s.add(job)
             s.commit()
         except Exception as e:
-            error = str(e)
+            error = redact(str(e))
     ctx = _job_ctx(job_id)
     ctx["error"] = error
     resp = templates.TemplateResponse(request, "_job_detail.html", ctx)
@@ -251,7 +330,7 @@ def job_enrich(request: Request, job_id: int):
             s.add(job)
             s.commit()
         except Exception as e:
-            error = str(e)
+            error = redact(str(e))
     ctx = _job_ctx(job_id)
     ctx["error"] = error
     return templates.TemplateResponse(request, "_job_detail.html", ctx)
@@ -268,9 +347,9 @@ def _board_ctx() -> dict:
     cols = ["interested", "applied", "interview", "offer", "rejected"]
     with session() as s:
         jobs = s.exec(select(Job).where(col(Job.status).in_(cols)).order_by(Job.score.desc())).all()
-        last = {}
-        for e in s.exec(select(JobEvent).order_by(JobEvent.at)).all():
-            last[e.job_id] = e
+        latest = (select(JobEvent.job_id, func.max(JobEvent.id).label("id"))
+                  .where(col(JobEvent.job_id).in_([j.id for j in jobs])).group_by(JobEvent.job_id).subquery())
+        last = {e.job_id: e for e in s.exec(select(JobEvent).join(latest, JobEvent.id == latest.c.id)).all()}
     board = {c: [j for j in jobs if j.status == c] for c in cols}
     stale = {j.id for j in board["applied"] if j.id in last and last[j.id].at < utcnow() - timedelta(days=10)}
     return {"board": board, "last": last, "stale": stale}
@@ -320,14 +399,19 @@ def _lines(text: str) -> list[str]:
 
 
 def _saved(msg: str = "Saved") -> Response:
-    return HTMLResponse(f'<span class="saved">✓ {msg}</span>')
+    return HTMLResponse(f'<span class="saved">✓ {escape(msg)}</span>')
+
+
+def _err(msg: str) -> Response:
+    return HTMLResponse(f'<span class="err">{escape(redact(msg))}</span>')
 
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
     s = get_settings()
-    return render(request, "settings.html", s=s, missing={n: missing_keys(n) for n in SOURCES},
-                  alerts_ok=notify.configured(s), ha_token=bool(__import__("os").environ.get("HA_TOKEN")))
+    return render(request, "settings.html", s=s, missing={n: missing_keys(n) for n in SOURCES}, models=llm.list_models(),
+                  alerts_ok=notify.configured(s), ha_token=bool(env("HA_TOKEN")),
+                  apprise_count=len(notify.apprise_urls()))
 
 
 @router.post("/settings/profile", response_class=HTMLResponse)
@@ -338,18 +422,33 @@ def save_profile(profile_md: str = Form(""), profile_mode: str = Form("both")):
     return _saved("Profile saved - use Re-score all to apply it to existing jobs")
 
 
+CV_TYPES = {".pdf", ".docx", ".md", ".markdown", ".txt"}
+CV_MAX_BYTES = 10 * 1024 * 1024
+
+
+def _remove_cv_files() -> None:
+    for f in DATA_DIR.glob("cv.*"):
+        f.unlink(missing_ok=True)
+
+
 @router.post("/settings/cv", response_class=HTMLResponse)
-async def upload_cv(request: Request, cv: UploadFile = File(...)):
-    data = await cv.read()
+async def upload_cv(request: Request, cv: UploadFile = File(...), next: str = Form("/settings#profile")):
+    suffix = Path(cv.filename or "").suffix.lower()
+    if suffix not in CV_TYPES:
+        return _err("CV must be a PDF, DOCX, Markdown or text file")
+    data = await cv.read(CV_MAX_BYTES + 1)
+    if len(data) > CV_MAX_BYTES:
+        return _err("CV is larger than 10 MB")
     try:
         text = extract_cv_text(cv.filename or "cv", data)
     except Exception as e:
-        return HTMLResponse(f'<span class="err">Could not read CV: {e}</span>')
-    (DATA_DIR / f"cv{Path(cv.filename or '').suffix.lower()}").write_bytes(data)
+        return _err(f"Could not read CV: {e}")
+    _remove_cv_files()
+    (DATA_DIR / f"cv{suffix}").write_bytes(data)
     s = get_settings()
     s.cv_filename, s.cv_text, s.cv_uploaded = cv.filename or "cv", text, utcnow().strftime("%d %b %Y %H:%M")
     save_settings(s)
-    return RedirectResponse("/settings#profile", status_code=303)
+    return RedirectResponse(safe_next(next), status_code=303)
 
 
 @router.post("/settings/cv/delete")
@@ -357,6 +456,7 @@ def delete_cv():
     s = get_settings()
     s.cv_filename = s.cv_text = s.cv_uploaded = ""
     save_settings(s)
+    _remove_cv_files()
     return RedirectResponse("/settings#profile", status_code=303)
 
 
@@ -364,6 +464,8 @@ def delete_cv():
 def save_search(
     centres: str = Form(""), include_remote: bool = Form(False), remote_penalty: int = Form(5), min_salary: int = Form(0),
     max_age_days: int = Form(21), queries: str = Form(""), board_queries: str = Form(""), discovery_queries: str = Form(""),
+    academic_queries: str = Form(""), country: str = Form("gb"), country_name: str = Form("United Kingdom"),
+    currency_symbol: str = Form("£"),
 ):
     s = get_settings()
     parsed = []
@@ -380,13 +482,16 @@ def save_search(
             continue
         coords = geo.geocode(name, s.search.centres)
         if not coords:
-            return HTMLResponse(f'<span class="err">Couldn\'t find "{name}" - try a town name or postcode</span>')
+            return _err(f'Couldn\'t find "{name}" - try a town name or postcode')
         parsed.append(Centre(name=name, lat=coords[0], lon=coords[1], radius_mi=r))
     s.search.centres = parsed or s.search.centres
     s.search.include_remote, s.search.remote_penalty = include_remote, remote_penalty
     s.search.min_salary, s.search.max_age_days = min_salary, max_age_days
     s.search.queries, s.search.board_queries = _lines(queries), _lines(board_queries)
-    s.search.discovery_queries = _lines(discovery_queries)
+    s.search.discovery_queries, s.search.academic_queries = _lines(discovery_queries), _lines(academic_queries)
+    s.search.country = country.strip().lower()[:2] or "gb"
+    s.search.country_name = country_name.strip() or "United Kingdom"
+    s.search.currency_symbol = currency_symbol.strip()[:3] or "£"
     save_settings(s)
     changed = pipeline.refilter_all()
     return _saved(f"Saved · {changed['now_visible']} jobs now shown, {changed['now_filtered']} now filtered out")
@@ -405,7 +510,7 @@ def save_filters(seniority_words: str = Form(""), exclude_keywords: str = Form("
         try:
             weights[k.strip()] = int(v.strip())
         except ValueError:
-            return HTMLResponse(f'<span class="err">Bad weight line: "{line}" (use Category: number)</span>')
+            return _err(f'Bad weight line: "{line}" (use Category: number)')
     s.filters.category_weights = weights
     save_settings(s)
     changed = pipeline.refilter_all()
@@ -436,7 +541,7 @@ def save_watchlist(watchlist: str = Form("")):
     for line in _lines(watchlist):
         parts = [p.strip() for p in line.split("|")]
         if len(parts) != 3 or parts[1] not in ("greenhouse", "lever", "ashby", "smartrecruiters", "workday", "page"):
-            return HTMLResponse(f'<span class="err">Bad line: "{line}" - use Name | type | id-or-url</span>')
+            return _err(f'Bad line: "{line}" - use Name | type | id-or-url')
         entries.append(WatchEntry(name=parts[0], type=parts[1], id=parts[2]))
     s.watchlist = entries
     save_settings(s)
@@ -445,10 +550,16 @@ def save_watchlist(watchlist: str = Form("")):
 
 @router.post("/settings/alerts", response_class=HTMLResponse)
 def save_alerts(enabled: bool = Form(False), ha_url: str = Form(""), notify_service: str = Form(""), threshold: int = Form(80),
-                quiet_start: str = Form("23:00"), quiet_end: str = Form("08:00"), public_url: str = Form("")):
+                quiet_start: str = Form("23:00"), quiet_end: str = Form("08:00"), public_url: str = Form(""),
+                mode: str = Form("instant"), digest_time: str = Form("18:00"), ha_enabled: bool = Form(False),
+                apprise_enabled: bool = Form(False)):
     s = get_settings()
     a = s.alerts
     a.enabled, a.ha_url, a.threshold = enabled, ha_url.strip(), threshold
+    if ha_url.strip() and urlsplit(ha_url.strip()).scheme not in ("http", "https"):
+        return _err("The Home Assistant URL must start with http:// or https://")
+    a.mode, a.digest_time = (mode if mode in ("instant", "digest") else "instant"), digest_time
+    a.ha_enabled, a.apprise_enabled = ha_enabled, apprise_enabled
     a.notify_service = notify_service.strip().removeprefix("notify.")
     a.quiet_start, a.quiet_end, a.public_url = quiet_start, quiet_end, public_url.strip() or a.public_url
     save_settings(s)
@@ -459,27 +570,62 @@ def save_alerts(enabled: bool = Form(False), ha_url: str = Form(""), notify_serv
 def test_alert():
     s = get_settings()
     if not notify.configured(s):
-        return HTMLResponse('<span class="err">Set the HA URL, notify service and HA_TOKEN (.env) first</span>')
-    try:
-        notify.send(s, "Job Scout test", "Alerts are working - strong matches will arrive like this.", s.alerts.public_url)
-    except Exception as e:
-        return HTMLResponse(f'<span class="err">Failed: {e}</span>')
-    return _saved("Test notification sent")
+        return _err("Nothing to send to yet: set APPRISE_URLS, or the Home Assistant URL, notify service and "
+                    "HA_TOKEN - and make sure alerts are on")
+    results = notify.send(s, "Job Scout test", "Alerts are working - strong matches will arrive like this.",
+                          s.alerts.public_url)
+    failed = {k: v for k, v in results.items() if v}
+    if failed:
+        return _err("; ".join(f"{k} failed: {v}" for k, v in failed.items()))
+    return _saved(f"Test sent via {', '.join(results)}")
 
 
 @router.post("/settings/llm", response_class=HTMLResponse)
 def save_llm(score_model: str = Form(...), writer_model: str = Form(...), daily_limit: int = Form(300),
-             firecrawl_daily_credits: int = Form(60)):
+             daily_budget_usd: float = Form(2.0), firecrawl_daily_credits: int = Form(60),
+             batch_rescore: bool = Form(False), prices: str = Form("")):
     s = get_settings()
-    s.llm.score_model, s.llm.writer_model = score_model.strip(), writer_model.strip()
-    s.llm.daily_limit, s.llm.firecrawl_daily_credits = daily_limit, firecrawl_daily_credits
+    score_model, writer_model = score_model.strip(), writer_model.strip()
+    for model in {score_model, writer_model} - {s.llm.score_model, s.llm.writer_model}:
+        if problem := llm.check_model(model):  # catch typos before they stall scoring
+            return _err(problem)
+    table = {}
+    for line in _lines(prices):
+        model, _, nums = line.partition(":")
+        try:
+            p_in, p_out = (float(x) for x in nums.split(","))
+        except ValueError:
+            return _err(f'Bad price line: "{line}" (use model: input, output)')
+        table[model.strip()] = [p_in, p_out]
+    s.llm.score_model, s.llm.writer_model = score_model, writer_model
+    s.llm.daily_limit, s.llm.firecrawl_daily_credits = max(daily_limit, 0), max(firecrawl_daily_credits, 0)
+    s.llm.daily_budget_usd, s.llm.batch_rescore = max(daily_budget_usd, 0.0), batch_rescore
+    s.llm.prices = table or s.llm.prices
     save_settings(s)
     return _saved("Saved")
+
+
+@router.post("/settings/prompts", response_class=HTMLResponse)
+def save_prompts(scoring_rubric: str = Form(""), writer_persona: str = Form(""), note_language: str = Form(""),
+                 reset: str = Form("")):
+    s = get_settings()
+    if reset:
+        s.llm.scoring_rubric, s.llm.writer_persona = DEFAULT_RUBRIC, DEFAULT_PERSONA
+        save_settings(s)
+        return RedirectResponse("/settings#prompts", status_code=303)
+    s.llm.scoring_rubric = scoring_rubric.strip() or DEFAULT_RUBRIC
+    s.llm.writer_persona = writer_persona.strip() or DEFAULT_PERSONA
+    s.llm.note_language = note_language.strip() or "British English"
+    save_settings(s)
+    return _saved("Saved - use Re-score all to apply the new rubric to existing jobs")
 
 
 @router.post("/settings/rescore", response_class=HTMLResponse)
 def rescore():
     scheduler.run_in_background(pipeline.rescore_all)
+    s = get_settings()
+    if s.llm.batch_rescore:
+        return _saved("Re-scoring in the background - large re-scores go through the Batches API and finish within a few hours")
     return _saved("Re-scoring in the background - jobs update as they're scored")
 
 

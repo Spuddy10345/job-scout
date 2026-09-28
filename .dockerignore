@@ -1,8 +1,16 @@
+.git
+.github
 .venv
 data
+secrets
 .env
-.git
+.env.*
+config/local.yaml
+docs
 tests
+scripts
 __pycache__
 *.pyc
 .pytest_cache
+.ruff_cache
+.DS_Store

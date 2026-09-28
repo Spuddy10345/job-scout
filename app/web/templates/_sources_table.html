@@ -1,0 +1,13 @@
+    <table class="grid">
+      <thead><tr><th>On</th><th>Source</th><th>Every (hours)</th><th>Keys</th></tr></thead>
+      <tbody>
+      {% for name, src in SOURCES.items() %}{% set cfg = s.sources.get(name) %}
+      <tr>
+        <td><input type="checkbox" name="{{ name }}_enabled" {{ 'checked' if cfg and cfg.enabled }} aria-label="Enable {{ src.label }}"></td>
+        <td><b>{{ src.label }}</b><div class="muted small">{{ src.note }}</div></td>
+        <td><input type="number" name="{{ name }}_interval" value="{{ cfg.interval_hours if cfg else 24 }}" min="0.25" step="0.25" class="narrow"></td>
+        <td>{% if missing[name] %}<span class="chip warn">needs {{ missing[name]|join(', ') }}</span>{% else %}<span class="chip ok">ready</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
