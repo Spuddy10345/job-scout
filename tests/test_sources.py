@@ -42,3 +42,11 @@ def test_brave_posting_heuristics():
     assert not looks_like_posting("https://uk.indeed.com/jobs?q=developer&l=Cardiff")
     assert not looks_like_posting("https://www.example.com/about")
     assert split_title("Graduate Software Engineer - Acme Ltd | Careers") == ("Graduate Software Engineer", "Acme Ltd")
+
+
+def test_workday_posted_on():
+    from app.sources.watchlist import _workday_posted
+
+    assert _workday_posted("Posted Today").date() == _workday_posted("Posted 0 Days Ago").date()
+    assert (_workday_posted("Posted Yesterday").date() - _workday_posted("Posted 30+ Days Ago").date()).days == 29
+    assert _workday_posted("") is None

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import NaiveDatetime
-from sqlalchemy import event
+from sqlalchemy import event, inspect, text
 from sqlmodel import JSON, Column, Field, Session, SQLModel, create_engine
 
 from .credentials import ROOT
@@ -21,6 +21,11 @@ STATUSES = ["new", "interested", "applied", "interview", "offer", "rejected", "h
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def utc_today() -> str:
+    """Key for daily budgets and usage counters (UTC, like every stored timestamp)."""
+    return utcnow().date().isoformat()
 
 
 class Job(SQLModel, table=True):
@@ -66,6 +71,7 @@ class Job(SQLModel, table=True):
     contacts: list[dict[str, str]] = Field(default_factory=list, sa_column=Column(JSON))
     score_hash: str = ""
     scored_at: NaiveDatetime | None = None
+    score_attempts: int = 0
 
     company_website: str = ""
     company_linkedin: str = ""
@@ -131,6 +137,32 @@ def _sqlite_pragmas(dbapi_conn, _record):
 
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
+    _add_missing_columns()
+
+
+def _add_missing_columns() -> None:
+    """create_all() never alters existing tables, so add columns introduced since the DB was made.
+
+    Additive only: new columns are nullable with their Python default as the SQL default.
+    """
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in SQLModel.metadata.sorted_tables:
+            if not insp.has_table(table.name):
+                continue
+            existing = {c["name"] for c in insp.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {column.type.compile(engine.dialect)}'
+                default = column.default.arg if column.default is not None and not callable(column.default.arg) else None
+                if isinstance(default, bool):
+                    ddl += f" DEFAULT {int(default)}"
+                elif isinstance(default, (int, float)):
+                    ddl += f" DEFAULT {default}"
+                elif isinstance(default, str):
+                    ddl += " DEFAULT '" + default.replace("'", "''") + "'"
+                conn.execute(text(ddl))
 
 
 def session() -> Session:

@@ -100,3 +100,35 @@ def test_clean_url_strips_tracking():
 
 def test_haversine():
     assert 125 < geo.haversine_mi(*CARDIFF, *LONDON) < 140  # ~131 mi as the crow flies
+
+
+def test_remote_roles_dropped_when_remote_switched_off():
+    settings = get_settings()
+    settings.search.include_remote = False
+    pipeline.ingest([raw(title="Junior Developer (Remote)", location="London", lat=LONDON[0], lon=LONDON[1])], settings)
+    job = all_jobs()[0]
+    assert job.filtered_out and job.filter_reason == "remote roles switched off"
+
+
+def test_salary_ranges_share_k_suffix():
+    assert pipeline.parse_salary("£30-35k") == (30000, 35000)
+    assert pipeline.parse_salary("£30k - £35k") == (30000, 35000)
+    assert pipeline.parse_salary("£30k to 35") == (30000, 35000)
+    assert pipeline.parse_salary("£12.50 - £14 per hour") == (12.5 * 1950, 14 * 1950)
+
+
+def test_non_http_urls_are_not_ingested():
+    stats = pipeline.ingest([raw(url="javascript:alert(1)")], get_settings())
+    assert stats["new"] == 0 and not all_jobs()
+
+
+def test_rescore_all_leaves_hidden_jobs_alone(monkeypatch):
+    monkeypatch.setattr(pipeline, "score_pending", lambda *a, **k: 0)
+    pipeline.ingest([raw(), raw(title="IT Support Technician", url="https://example.com/job/2")], get_settings())
+    with session() as s:
+        for j, status in zip(s.exec(select(Job).order_by(Job.id)).all(), ["new", "hidden"]):
+            j.score, j.status = 50, status
+            s.add(j)
+        s.commit()
+    pipeline.rescore_all()
+    assert [j.score for j in sorted(all_jobs(), key=lambda j: j.id)] == [None, 50]

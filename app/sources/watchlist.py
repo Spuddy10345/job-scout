@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from .. import llm
 from ..config import AppSettings, WatchEntry
-from ..db import SeenUrl, session
+from ..db import SeenUrl, session, utcnow
 from ..pages import get_page_text
 from .base import RawJob, Source, http_client, log
 
@@ -27,7 +27,7 @@ def _ts(value) -> datetime | None:
         return None
     try:
         if isinstance(value, (int, float)):
-            return datetime.utcfromtimestamp(value / 1000)
+            return datetime.fromtimestamp(value / 1000, timezone.utc).replace(tzinfo=None)
         return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
     except (ValueError, OSError):
         return None
@@ -78,6 +78,20 @@ def smartrecruiters(c, e: WatchEntry) -> list[RawJob]:
     return out
 
 
+def _workday_posted(text: str) -> datetime | None:
+    """Workday only says "Posted Today", "Posted Yesterday", "Posted 3 Days Ago" or "Posted 30+ Days Ago"."""
+    t = (text or "").lower()
+    if "today" in t:
+        days = 0
+    elif "yesterday" in t:
+        days = 1
+    elif m := re.search(r"(\d+)\+?\s*days?", t):
+        days = int(m.group(1))
+    else:
+        return None
+    return utcnow() - timedelta(days=days)
+
+
 def workday(c, e: WatchEntry) -> list[RawJob]:
     tenant, wd, site = e.id.split("/")
     host = f"https://{tenant}.{wd}.myworkdayjobs.com"
@@ -92,7 +106,7 @@ def workday(c, e: WatchEntry) -> list[RawJob]:
             if not j.get("externalPath"):
                 continue
             out.append(RawJob(title=j["title"], url=f"{host}/{site}{j['externalPath']}", source="watchlist", company=e.name,
-                              location=j.get("locationsText", ""), description=j.get("postedOn", "")))
+                              location=j.get("locationsText", ""), posted_at=_workday_posted(j.get("postedOn", ""))))
         if offset + 20 >= (data.get("total") or 0) or not posts:
             break
     return out
@@ -110,7 +124,7 @@ def page(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
         extracted = llm.extract_jobs(settings, text, e.id, hint=f"This is the careers page of {e.name}.")
         row = row or SeenUrl(url=e.id)
         row.content_hash = digest
-        row.seen_at = datetime.utcnow()
+        row.seen_at = utcnow()
         s.add(row)
         s.commit()
     return [

@@ -12,13 +12,15 @@ import httpx
 from sqlalchemy.exc import OperationalError
 
 from .config import Centre
+from .credentials import env
 from .db import GeoCache, session
 
 log = logging.getLogger("jobscout.geo")
 
 API = "https://api.postcodes.io"
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
-NOMINATIM_UA = "job-scout/0.1 (personal job-search tool; github.com/finjo)"
+# Nominatim's usage policy requires an identifying User-Agent with a way to reach you.
+NOMINATIM_UA = f"job-scout/0.2 (self-hosted job search; {env('JOBSCOUT_CONTACT') or 'https://github.com/Spuddy10345/job-scout'})"
 _nominatim_lock = threading.Lock()
 _nominatim_last = 0.0
 POSTCODE = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})\b", re.I)
