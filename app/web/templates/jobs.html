@@ -6,7 +6,7 @@
   <input id="q" type="search" name="q" placeholder="Search title, company, text…" value="{{ p.q or '' }}">
   <select name="category" aria-label="Category">
     <option value="">All categories</option>
-    {% for c in CATEGORIES %}<option {{ 'selected' if p.category == c }}>{{ c }}</option>{% endfor %}
+    {% for c in categories() %}<option {{ 'selected' if p.category == c }}>{{ c }}</option>{% endfor %}
   </select>
   <select name="source" aria-label="Source">
     <option value="">All sources</option>

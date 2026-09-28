@@ -1,4 +1,7 @@
-"""Adzuna UK search API (free key: developer.adzuna.com). Aggregates many boards incl. agency sites."""
+"""Adzuna search API (free key: developer.adzuna.com). Aggregates many boards incl. agency sites.
+
+Covers ~20 countries; the country code comes from Settings → Search area.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +10,7 @@ from datetime import datetime
 from ..config import AppSettings, env
 from .base import RawJob, Source, http_client, log
 
-API = "https://api.adzuna.com/v1/api/jobs/gb/search/{page}"
+API = "https://api.adzuna.com/v1/api/jobs/{country}/search/{page}"
 MI_TO_KM = 1.609
 
 
@@ -42,7 +45,7 @@ class Adzuna(Source):
         with http_client() as client:
             for s in searches:
                 page = s.pop("_page")
-                r = client.get(API.format(page=page), params={**base, **s})
+                r = client.get(API.format(country=settings.search.country.lower() or "gb", page=page), params={**base, **s})
                 if r.status_code != 200:
                     # never raise_for_status() here: its message includes the URL, and the key is in the query
                     log.warning("adzuna %s -> %s %s", s, r.status_code, r.text[:200])
