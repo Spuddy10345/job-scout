@@ -26,7 +26,9 @@ _nominatim_last = 0.0
 POSTCODE = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})\b", re.I)
 OUTCODE = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\b")
 REMOTE = re.compile(r"\b(fully[- ]remote|remote|work from home|home[- ]based|wfh|anywhere in the uk)\b", re.I)
-NOISE = re.compile(r"\b(hybrid|remote|on-?site|office|based|uk|united kingdom|gb|england|wales|area|city of)\b|\(.*?\)|[^\w\s,'-]", re.I)
+NOISE = re.compile(
+    r"\b(hybrid|remote|on-?site|office|based|uk|united kingdom|gb|england|wales|area|city of)\b|\(.*?\)|[^\w\s,'-]", re.I
+)
 # Too vague to place - keep such jobs rather than guess a centroid.
 REGIONS = {"south wales", "wales", "south west", "south west england", "uk", "united kingdom", "england", "gb",
            "great britain", "multiple locations", "various locations", "nationwide", "various", "uk wide", "anywhere"}
@@ -149,5 +151,5 @@ def geocode(location: str, centres: list[Centre]) -> tuple[float, float] | None:
 
 def warm(locations: set[str], centres: list[Centre]) -> None:
     """Geocode (and cache) locations up front, outside any write transaction."""
-    for loc in sorted(l for l in locations if l and l.strip()):
+    for loc in sorted(x for x in locations if x and x.strip()):
         geocode(loc, centres)

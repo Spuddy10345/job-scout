@@ -252,8 +252,10 @@ def submit_score_batch(settings: AppSettings, profile_text: str, jobs: dict[int,
     """Queue many scoring requests as one Message Batch (half price, results within 24h)."""
     _spend(settings, calls=len(jobs))
     fmt = {"format": {"type": "json_schema", "schema": anthropic.transform_schema(_schema(settings).model_json_schema())}}
-    requests = [{"custom_id": f"job-{job_id}", "params": {**_scoring_params(settings, profile_text, payload), "output_config": fmt}}
-                for job_id, payload in jobs.items()]
+    requests = [
+        {"custom_id": f"job-{job_id}", "params": {**_scoring_params(settings, profile_text, payload), "output_config": fmt}}
+        for job_id, payload in jobs.items()
+    ]
     batch = client().messages.batches.create(requests=requests)
     log.info("submitted scoring batch %s with %d jobs", batch.id, len(requests))
     return batch.id

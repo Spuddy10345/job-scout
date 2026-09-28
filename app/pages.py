@@ -62,7 +62,7 @@ def html_to_text(html: str) -> str:
             a.replace_with(f"[{label}]({href})")
     body = tree.body or tree.root
     text = body.text(separator="\n", strip=True) if body else ""
-    lines = [ln for ln in (l.strip() for l in text.splitlines()) if ln]
+    lines = [ln for ln in (raw.strip() for raw in text.splitlines()) if ln]
     return "\n".join(lines)
 
 

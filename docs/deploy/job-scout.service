@@ -1,0 +1,25 @@
+# systemd unit for running Job Scout without Docker (e.g. on a Raspberry Pi).
+#   sudo cp docs/deploy/job-scout.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now job-scout
+# Assumes the repo is checked out at /opt/job-scout, owned by the "scout" user, with `uv sync` run once.
+[Unit]
+Description=Job Scout
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=scout
+WorkingDirectory=/opt/job-scout
+EnvironmentFile=/opt/job-scout/.env
+Environment=JOBSCOUT_HOST=127.0.0.1 JOBSCOUT_PORT=8080
+ExecStart=/opt/job-scout/.venv/bin/python -m app serve
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/job-scout/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

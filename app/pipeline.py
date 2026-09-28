@@ -56,7 +56,7 @@ def fingerprint(title: str, company: str, location: str, url: str) -> str:
     c = _norm(COMPANY_SUFFIX.sub(" ", company or ""))
     loc = _norm((location or "").split(",")[0])
     key = f"{t}|{c}|{loc}" if c else f"{t}|{clean_url(url)}"
-    return hashlib.sha1(key.encode()).hexdigest()[:20]
+    return hashlib.sha1(key.encode(), usedforsecurity=False).hexdigest()[:20]
 
 
 def parse_salary(text: str) -> tuple[float | None, float | None]:
@@ -85,7 +85,8 @@ def parse_salary(text: str) -> tuple[float | None, float | None]:
 # ---------------------------------------------------------------- filters
 
 def _years_required(text: str) -> int | None:
-    m = re.findall(r"(\d{1,2})\s*\+?\s*(?:-|to)?\s*\d{0,2}\s*\+?\s*years?[’'`s]*\s+(?:of\s+)?(?:\w+\s+){0,2}experience", text, re.I)
+    m = re.findall(r"(\d{1,2})\s*\+?\s*(?:-|to)?\s*\d{0,2}\s*\+?\s*years?[’'`s]*\s+(?:of\s+)?(?:\w+\s+){0,2}experience",
+                   text, re.I)
     nums = [int(x) for x in m if 0 < int(x) < 30]
     return min(nums) if nums else None
 
@@ -193,7 +194,8 @@ def ingest(raw_jobs: list[RawJob], settings: AppSettings) -> dict[str, int]:
 # ---------------------------------------------------------------- scoring
 
 def _score_hash(job: Job, profile: str) -> str:
-    return hashlib.sha1(f"{job.title}\n{job.company}\n{job.description}\n{profile}".encode()).hexdigest()[:16]
+    blob = f"{job.title}\n{job.company}\n{job.description}\n{profile}".encode()
+    return hashlib.sha1(blob, usedforsecurity=False).hexdigest()[:16]
 
 
 def _job_payload(job: Job) -> dict:

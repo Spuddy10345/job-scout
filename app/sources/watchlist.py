@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .. import llm
 from ..config import AppSettings, WatchEntry
@@ -27,7 +27,7 @@ def _ts(value) -> datetime | None:
         return None
     try:
         if isinstance(value, (int, float)):
-            return datetime.fromtimestamp(value / 1000, timezone.utc).replace(tzinfo=None)
+            return datetime.fromtimestamp(value / 1000, UTC).replace(tzinfo=None)
         return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
     except (ValueError, OSError):
         return None

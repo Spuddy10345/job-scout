@@ -71,7 +71,8 @@ class Brave(Source):
                     title, company = split_title(html.unescape(res.get("title", "")))
                     desc = html.unescape(re.sub(r"<[^>]+>", "", res.get("description", "")))
                     extra = " ".join(html.unescape(re.sub(r"<[^>]+>", "", x)) for x in res.get("extra_snippets", []) or [])
-                    jobs.append(RawJob(title=title, url=url, source=self.name, company=company, description=f"{desc} {extra}".strip()))
+                    jobs.append(RawJob(title=title, url=url, source=self.name, company=company,
+                                       description=f"{desc} {extra}".strip()))
         for job in jobs:  # snippets are short and rarely say where - read the posting itself (free)
             text = plain_text(job.url)
             if len(text) > len(job.description) + 200:

@@ -20,9 +20,9 @@ os.environ.setdefault("JOBSCOUT_NO_DOTENV", "1")
 os.environ.setdefault("JOBSCOUT_CONFIG", os.devnull + ".missing")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.config import get_settings, save_settings, set_kv  # noqa: E402
 from sqlmodel import select  # noqa: E402
 
+from app.config import get_settings, save_settings, set_kv  # noqa: E402
 from app.db import Job, JobEvent, SourceRun, init_db, session, utcnow  # noqa: E402
 
 random.seed(7)
