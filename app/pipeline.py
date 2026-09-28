@@ -31,7 +31,7 @@ TRACKING = re.compile(r"^(utm_|fbclid|gclid|mc_|ref$|refId|trackingId|src$|sourc
 COMPANY_SUFFIX = re.compile(r"\b(ltd|limited|plc|llp|inc|group|holdings|uk|the|co)\b\.?", re.I)
 NUM = r"(\d+(?:[.,]\d+)*)"
 # "£25,000 - £30,000", "£28k", "£30-35k", "£30k to 35k" - the second figure's "k" applies to a bare first one.
-MONEY = re.compile(rf"£\s*{NUM}\s*(k)?(?:\s*(?:-|–|—|to)\s*£?\s*{NUM}\s*(k)?)?", re.I)
+MONEY = re.compile(rf"[£$€]\s*{NUM}\s*(k)?(?:\s*(?:-|–|—|to)\s*[£$€]?\s*{NUM}\s*(k)?)?", re.I)
 
 
 # ---------------------------------------------------------------- normalisation

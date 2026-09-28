@@ -33,7 +33,7 @@ def _ts(value) -> datetime | None:
         return None
 
 
-def greenhouse(c, e: WatchEntry) -> list[RawJob]:
+def greenhouse(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
     r = c.get(f"https://boards-api.greenhouse.io/v1/boards/{e.id}/jobs", params={"content": "true"})
     r.raise_for_status()
     return [
@@ -44,7 +44,7 @@ def greenhouse(c, e: WatchEntry) -> list[RawJob]:
     ]
 
 
-def lever(c, e: WatchEntry) -> list[RawJob]:
+def lever(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
     r = c.get(f"https://api.lever.co/v0/postings/{e.id}", params={"mode": "json"})
     r.raise_for_status()
     return [
@@ -55,7 +55,7 @@ def lever(c, e: WatchEntry) -> list[RawJob]:
     ]
 
 
-def ashby(c, e: WatchEntry) -> list[RawJob]:
+def ashby(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
     r = c.get(f"https://api.ashbyhq.com/posting-api/job-board/{e.id}")
     r.raise_for_status()
     return [
@@ -66,8 +66,9 @@ def ashby(c, e: WatchEntry) -> list[RawJob]:
     ]
 
 
-def smartrecruiters(c, e: WatchEntry) -> list[RawJob]:
-    r = c.get(f"https://api.smartrecruiters.com/v1/companies/{e.id}/postings", params={"limit": 100, "country": "gb"})
+def smartrecruiters(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
+    r = c.get(f"https://api.smartrecruiters.com/v1/companies/{e.id}/postings",
+              params={"limit": 100, "country": settings.search.country.lower()})
     r.raise_for_status()
     out = []
     for j in r.json().get("content", []):
@@ -92,13 +93,13 @@ def _workday_posted(text: str) -> datetime | None:
     return utcnow() - timedelta(days=days)
 
 
-def workday(c, e: WatchEntry) -> list[RawJob]:
+def workday(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
     tenant, wd, site = e.id.split("/")
     host = f"https://{tenant}.{wd}.myworkdayjobs.com"
     out = []
     for offset in range(0, 200, 20):
         r = c.post(f"{host}/wday/cxs/{tenant}/{site}/jobs",
-                   json={"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": "United Kingdom"})
+                   json={"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": settings.search.country_name})
         r.raise_for_status()
         data = r.json()
         posts = data.get("jobPostings", [])
@@ -134,7 +135,8 @@ def page(c, e: WatchEntry, settings: AppSettings) -> list[RawJob]:
     ]
 
 
-HANDLERS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "smartrecruiters": smartrecruiters, "workday": workday}
+HANDLERS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "smartrecruiters": smartrecruiters, "workday": workday,
+            "page": page}
 
 
 class Watchlist(Source):
@@ -149,10 +151,7 @@ class Watchlist(Source):
         with http_client(headers={"Accept": "application/json"}) as c:
             for e in settings.watchlist:
                 try:
-                    if e.type == "page":
-                        jobs += page(c, e, settings)
-                    else:
-                        jobs += HANDLERS[e.type](c, e)
+                    jobs += HANDLERS[e.type](c, e, settings)
                 except Exception as ex:
                     errors.append(f"{e.name}: {ex}")
                     log.warning("watchlist %s failed: %s", e.name, ex)

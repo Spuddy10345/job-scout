@@ -9,6 +9,7 @@
   <a href="#sources">Sources</a>
   <a href="#watchlist">Company watchlist</a>
   <a href="#alerts">Alerts</a>
+  <a href="#prompts">Scoring rubric</a>
   <a href="#ai">AI & budgets</a>
 </nav>
 
@@ -69,6 +70,13 @@
         <textarea name="board_queries" rows="9">{{ s.search.board_queries|join('\n') }}</textarea></label>
       <label>Web discovery searches <span class="muted">(Brave)</span>
         <textarea name="discovery_queries" rows="9">{{ s.search.discovery_queries|join('\n') }}</textarea></label>
+      <label>University job searches <span class="muted">(jobs.ac.uk)</span>
+        <textarea name="academic_queries" rows="9">{{ s.search.academic_queries|join('\n') }}</textarea></label>
+    </div>
+    <div class="grid-3">
+      <label>Country code <span class="muted">(Adzuna: gb, us, de, au…)</span><input name="country" value="{{ s.search.country }}" maxlength="2" class="narrow"></label>
+      <label>Country name <span class="muted">(Workday search)</span><input name="country_name" value="{{ s.search.country_name }}"></label>
+      <label>Currency symbol <input name="currency_symbol" value="{{ s.search.currency_symbol }}" maxlength="3" class="narrow"></label>
     </div>
     <div class="form-foot"><button class="btn primary">Save & re-filter</button><span class="result"></span></div>
   </form>
@@ -87,7 +95,7 @@
       <label>Category score adjustments <span class="muted">(<code>Category: ±points</code>)</span>
         <textarea name="category_weights" rows="7">{% for k, v in s.filters.category_weights.items() %}{{ k }}: {{ v }}
 {% endfor %}</textarea></label>
-      <div class="muted small hint">Categories: {{ CATEGORIES|join(', ') }}. A job's final score = AI fit + category adjustment − remote penalty.</div>
+      <div class="muted small hint">These lines define the categories the AI sorts jobs into (plus “Not-relevant”) - rename, add or remove them to suit your search. A job's final score = AI fit + category adjustment − remote penalty.</div>
     </div>
     <div class="form-foot"><button class="btn primary">Save & re-filter</button><span class="result"></span></div>
   </form>
@@ -141,6 +149,20 @@
       <button type="button" class="btn" hx-post="/settings/alerts/test" hx-target="next .result">Send test</button>
       <span class="result"></span>
     </div>
+  </form>
+</section>
+
+<section id="prompts" class="card">
+  <h2>Scoring rubric</h2>
+  <p class="muted">How the AI decides a job's fit score, in plain words. Describe who the candidate is and what each score band means for them - your profile and CV are added after it. The field rules the app relies on are fixed and appended automatically.</p>
+  <form hx-post="/settings/prompts" hx-target="find .result">
+    <label>Rubric <textarea name="scoring_rubric" rows="12">{{ s.llm.scoring_rubric }}</textarea></label>
+    <label>Application notes are written for <input name="writer_persona" value="{{ s.llm.writer_persona }}" placeholder="a job seeker early in their tech career"></label>
+    <div class="form-foot"><button class="btn primary">Save rubric</button><span class="result"></span></div>
+  </form>
+  <form method="post" action="/settings/prompts" data-confirm="Reset the rubric and persona to the built-in defaults?">
+    <input type="hidden" name="reset" value="1">
+    <button class="btn small ghost">Reset rubric to default</button>
   </form>
 </section>
 

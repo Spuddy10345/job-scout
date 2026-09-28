@@ -1,10 +1,12 @@
-"""Runtime settings: seeded from config/defaults.yaml, persisted in the Setting table.
+"""Runtime settings, layered: config/defaults.yaml < config/local.yaml (optional, gitignored,
+path overridable with JOBSCOUT_CONFIG) < whatever was saved from the Settings page (Setting table).
 
 Secrets never live here - they come from the environment (.env) only.
 """
 
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 
@@ -13,8 +15,10 @@ from pydantic import BaseModel, Field
 
 from .credentials import ROOT, env
 from .db import Setting, session
+from .prompts import DEFAULT_CATEGORIES, DEFAULT_PERSONA, DEFAULT_RUBRIC, NOT_RELEVANT
 
 DEFAULTS_PATH = ROOT / "config" / "defaults.yaml"
+LOCAL_PATH = Path(os.environ.get("JOBSCOUT_CONFIG") or ROOT / "config" / "local.yaml")
 
 
 class Centre(BaseModel):
@@ -33,6 +37,10 @@ class SearchSettings(BaseModel):
     queries: list[str] = Field(default_factory=list)
     board_queries: list[str] = Field(default_factory=list)
     discovery_queries: list[str] = Field(default_factory=list)
+    academic_queries: list[str] = Field(default_factory=list)
+    country: str = "gb"  # Adzuna country code and SmartRecruiters filter
+    country_name: str = "United Kingdom"  # Workday search text
+    currency_symbol: str = "£"
 
 
 class FilterSettings(BaseModel):
@@ -68,6 +76,8 @@ class LLMSettings(BaseModel):
     writer_model: str = "claude-sonnet-5"
     daily_limit: int = 300
     firecrawl_daily_credits: int = 60
+    scoring_rubric: str = DEFAULT_RUBRIC
+    writer_persona: str = DEFAULT_PERSONA
 
 
 class AppSettings(BaseModel):
@@ -109,9 +119,31 @@ _lock = threading.Lock()
 _cache: AppSettings | None = None
 
 
+def overlay(base: dict, over: dict) -> dict:
+    """Section-level merge: `over` wins per field inside each section (search, filters, llm...), so
+    fields added in newer versions keep their defaults, while lists and dicts such as category
+    weights are replaced whole. Sources merge per source so new ones appear for existing installs."""
+    merged = dict(base)
+    for key, value in (over or {}).items():
+        if key == "sources" and isinstance(value, dict):
+            merged[key] = {**base.get(key, {}), **value}
+        elif isinstance(value, dict) and isinstance(base.get(key), dict):
+            merged[key] = {**base[key], **value}
+        else:
+            merged[key] = value
+    return merged
+
+
+def _load_yaml(path: Path) -> dict:
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
 def defaults() -> AppSettings:
-    with open(DEFAULTS_PATH) as f:
-        return AppSettings.model_validate(yaml.safe_load(f))
+    data = _load_yaml(DEFAULTS_PATH)
+    if LOCAL_PATH.exists():
+        data = overlay(data, _load_yaml(LOCAL_PATH))
+    return AppSettings.model_validate(data)
 
 
 def get_settings() -> AppSettings:
@@ -121,15 +153,23 @@ def get_settings() -> AppSettings:
             with session() as s:
                 row = s.get(Setting, "settings")
             base = defaults()
-            if row is None:
-                _cache = base
-            else:
-                merged = base.model_dump()
-                merged.update(row.value)
-                # sources added in newer defaults should appear for existing installs
-                merged["sources"] = {**base.model_dump()["sources"], **row.value.get("sources", {})}
-                _cache = AppSettings.model_validate(merged)
+            _cache = base if row is None else AppSettings.model_validate(overlay(base.model_dump(), row.value))
         return _cache.model_copy(deep=True)
+
+
+def currency() -> str:
+    """Cheap read for template filters (no deep copy)."""
+    return (_cache or get_settings()).search.currency_symbol
+
+
+def categories(settings: AppSettings) -> list[str]:
+    cats = [c for c in settings.filters.category_weights if c != NOT_RELEVANT] or list(DEFAULT_CATEGORIES)
+    return [*cats, NOT_RELEVANT]
+
+
+def settings_saved() -> bool:
+    with session() as s:
+        return s.get(Setting, "settings") is not None
 
 
 def save_settings(new: AppSettings) -> None:

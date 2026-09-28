@@ -13,8 +13,9 @@ from sqlmodel import col, func, or_, select
 from .. import enrich, llm, notify, pages, pipeline, scheduler
 from ..auth import is_local_host, password, password_ok, safe_next
 from ..credentials import env, redact
-from ..config import (AppSettings, Centre, SourceSettings, WatchEntry, get_kv, get_settings, missing_keys,
-                      reset_settings, save_settings, set_kv)
+from ..config import (AppSettings, Centre, SourceSettings, WatchEntry, categories, currency, get_kv, get_settings,
+                      missing_keys, reset_settings, save_settings, set_kv)
+from ..prompts import DEFAULT_PERSONA, DEFAULT_RUBRIC
 from ..db import DATA_DIR, STATUSES, Job, JobEvent, SourceRun, session, utcnow
 from ..profile import extract_cv_text, profile_text
 from ..sources import SOURCES
@@ -22,7 +23,6 @@ from ..sources import SOURCES
 router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
-CATEGORIES = ["SWE", "Security-Crypto", "AI-Data", "Hardware-Embedded", "IT-Support", "Adjacent", "Not-relevant"]
 SORTS = {
     "score": Job.score, "posted": Job.posted_at, "seen": Job.first_seen, "salary": Job.salary_max,
     "distance": Job.distance_mi, "company": Job.company, "title": Job.title,
@@ -76,7 +76,7 @@ def local(dt: datetime | None) -> datetime | None:
 
 
 def money(v: float | None) -> str:
-    return f"£{v / 1000:.0f}k" if v else ""
+    return f"{currency()}{v / 1000:.0f}k" if v else ""
 
 
 def safe_url(url: str | None) -> str:
@@ -86,7 +86,8 @@ def safe_url(url: str | None) -> str:
 
 
 templates.env.filters.update(local=local, timeago=timeago, score_class=score_class, money=money, safe_url=safe_url)
-templates.env.globals.update(STATUSES=STATUSES, CATEGORIES=CATEGORIES, SOURCES=SOURCES, METHOD_LABEL=METHOD_LABEL)
+templates.env.globals.update(STATUSES=STATUSES, SOURCES=SOURCES, METHOD_LABEL=METHOD_LABEL,
+                             categories=lambda: categories(get_settings()))
 
 
 def _counts() -> dict:
@@ -421,6 +422,8 @@ def delete_cv():
 def save_search(
     centres: str = Form(""), include_remote: bool = Form(False), remote_penalty: int = Form(5), min_salary: int = Form(0),
     max_age_days: int = Form(21), queries: str = Form(""), board_queries: str = Form(""), discovery_queries: str = Form(""),
+    academic_queries: str = Form(""), country: str = Form("gb"), country_name: str = Form("United Kingdom"),
+    currency_symbol: str = Form("£"),
 ):
     s = get_settings()
     parsed = []
@@ -443,7 +446,10 @@ def save_search(
     s.search.include_remote, s.search.remote_penalty = include_remote, remote_penalty
     s.search.min_salary, s.search.max_age_days = min_salary, max_age_days
     s.search.queries, s.search.board_queries = _lines(queries), _lines(board_queries)
-    s.search.discovery_queries = _lines(discovery_queries)
+    s.search.discovery_queries, s.search.academic_queries = _lines(discovery_queries), _lines(academic_queries)
+    s.search.country = country.strip().lower()[:2] or "gb"
+    s.search.country_name = country_name.strip() or "United Kingdom"
+    s.search.currency_symbol = currency_symbol.strip()[:3] or "£"
     save_settings(s)
     changed = pipeline.refilter_all()
     return _saved(f"Saved · {changed['now_visible']} jobs now shown, {changed['now_filtered']} now filtered out")
@@ -532,6 +538,19 @@ def save_llm(score_model: str = Form(...), writer_model: str = Form(...), daily_
     s.llm.daily_limit, s.llm.firecrawl_daily_credits = daily_limit, firecrawl_daily_credits
     save_settings(s)
     return _saved("Saved")
+
+
+@router.post("/settings/prompts", response_class=HTMLResponse)
+def save_prompts(scoring_rubric: str = Form(""), writer_persona: str = Form(""), reset: str = Form("")):
+    s = get_settings()
+    if reset:
+        s.llm.scoring_rubric, s.llm.writer_persona = DEFAULT_RUBRIC, DEFAULT_PERSONA
+        save_settings(s)
+        return RedirectResponse("/settings#prompts", status_code=303)
+    s.llm.scoring_rubric = scoring_rubric.strip() or DEFAULT_RUBRIC
+    s.llm.writer_persona = writer_persona.strip() or DEFAULT_PERSONA
+    save_settings(s)
+    return _saved("Saved - use Re-score all to apply the new rubric to existing jobs")
 
 
 @router.post("/settings/rescore", response_class=HTMLResponse)

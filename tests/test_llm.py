@@ -11,7 +11,7 @@ from app.db import Job
 
 def assessment(**kw):
     base = dict(advert_title="Graduate Cryptography Engineer", advert_company="Acme", advert_location="Cardiff",
-                fit_score=70, category="Security-Crypto", why="Graduate crypto role.", cv_angle="Built X, improving Y.",
+                fit_score=70, category="Security", why="Graduate crypto role.", cv_angle="Built X, improving Y.",
                 seniority_fit="entry", red_flags=[], apply_method="company-ats", apply_steps=["Apply on site"],
                 contacts=[{"kind": "email", "value": "jobs@acme.co.uk", "label": "HR"}], is_remote=False)
     base.update(kw)
@@ -43,9 +43,11 @@ def job() -> Job:
 def test_score_applies_category_weight(fake_client):
     j = job()
     pipeline.score_job(j, get_settings(), "profile")
-    assert j.score == 70 + get_settings().filters.category_weights["Security-Crypto"]
+    assert j.score == 70 + get_settings().filters.category_weights["Security"]
     assert j.contacts == [{"kind": "email", "value": "jobs@acme.co.uk", "label": "HR"}]
-    assert fake_client.calls[0]["output_format"] is llm.JobAssessment
+    schema = fake_client.calls[0]["output_format"]
+    assert issubclass(schema, llm.JobAssessment)
+    assert schema.model_json_schema()["properties"]["category"]["enum"][-1] == "Not-relevant"
     assert fake_client.calls[0]["model"] == get_settings().llm.score_model
 
 
@@ -145,3 +147,13 @@ def test_extraction_cut_off_raises(fake_client):
     fake_client.parse = lambda **kw: SimpleNamespace(parsed_output=None, stop_reason="max_tokens")
     with pytest.raises(RuntimeError, match="max_tokens"):
         llm.extract_jobs(get_settings(), "page", "https://e.com/careers")
+
+
+def test_rubric_and_categories_come_from_settings(fake_client):
+    s = get_settings()
+    s.llm.scoring_rubric = "Score for a nurse moving into health informatics."
+    s.filters.category_weights = {"Informatics": 10, "Clinical": -20}
+    pipeline.score_job(job(), s, "profile")
+    call = fake_client.calls[0]
+    assert call["system"].startswith("Score for a nurse")
+    assert call["output_format"].model_json_schema()["properties"]["category"]["enum"] == ["Informatics", "Clinical", "Not-relevant"]

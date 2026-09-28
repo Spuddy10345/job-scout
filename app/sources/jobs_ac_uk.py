@@ -1,7 +1,7 @@
-"""jobs.ac.uk - university and research roles (research software engineers, PQC/security research posts).
+"""jobs.ac.uk - UK university and research roles (research software engineers, lab and IT posts).
 
 The site's location filter is ignored server-side, so we search by keyword and let the
-pipeline's radius filter keep the South Wales / Bristol ones.
+pipeline's radius filter keep the nearby ones.
 """
 
 from __future__ import annotations
@@ -14,16 +14,7 @@ from ..config import AppSettings
 from .base import RawJob, Source, http_client
 
 SEARCH = "https://www.jobs.ac.uk/search/"
-KEYWORDS = [
-    "software engineer",
-    "research software",
-    "developer",
-    "cryptography",
-    "cyber security",
-    "IT support",
-    "data",
-    "technician computing",
-]
+KEYWORDS = ["software engineer", "research software", "developer", "IT support", "data"]  # if none are configured
 
 
 def parse_search(html: str, source: str = "jobs_ac_uk") -> list[RawJob]:
@@ -65,7 +56,7 @@ class JobsAcUk(Source):
     def fetch(self, settings: AppSettings) -> list[RawJob]:
         jobs: list[RawJob] = []
         with http_client() as client:
-            for kw in KEYWORDS:
+            for kw in settings.search.academic_queries or KEYWORDS:
                 r = client.get(SEARCH, params={"keywords": kw, "sortOrder": "1", "pageSize": "100"})
                 r.raise_for_status()
                 jobs += parse_search(r.text, self.name)

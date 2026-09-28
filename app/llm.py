@@ -8,17 +8,18 @@ from __future__ import annotations
 
 import logging
 import threading
+from functools import lru_cache
 from typing import Literal
 
 import anthropic
-from pydantic import BaseModel
+from pydantic import BaseModel, create_model
 
-from .config import AppSettings, env, get_kv, set_kv
+from .config import AppSettings, categories, env, get_kv, set_kv
 from .db import utc_today
+from .prompts import DEFAULT_PERSONA, DEFAULT_RUBRIC, FIELD_GUIDANCE
 
 log = logging.getLogger("jobscout.llm")
 
-Category = Literal["SWE", "Security-Crypto", "AI-Data", "Hardware-Embedded", "IT-Support", "Adjacent", "Not-relevant"]
 ApplyMethod = Literal["easy-apply", "email-cv", "company-ats", "gumtree-message", "application-form", "agency", "unknown"]
 
 
@@ -33,7 +34,7 @@ class JobAssessment(BaseModel):
     advert_company: str
     advert_location: str
     fit_score: int
-    category: Category
+    category: str  # narrowed to the configured categories by assessment_model()
     why: str
     cv_angle: str
     seniority_fit: Literal["entry", "junior-ok", "stretch", "too-senior"]
@@ -42,6 +43,13 @@ class JobAssessment(BaseModel):
     apply_steps: list[str]
     contacts: list[Contact]
     is_remote: bool
+
+
+@lru_cache(maxsize=8)
+def assessment_model(cats: tuple[str, ...]) -> type[JobAssessment]:
+    """JobAssessment with `category` constrained to the user's categories, so structured output
+    can only return one of them."""
+    return create_model("JobAssessment", __base__=JobAssessment, category=(Literal[cats], ...))
 
 
 class ExtractedJob(BaseModel):
@@ -100,33 +108,16 @@ def _spend(settings: AppSettings) -> None:
         set_kv("llm_usage", {today: used + 1})  # only keep today's counter
 
 
-SCORING_RULES = """You screen job adverts for one specific candidate: a new graduate trying to get a first job in tech.
 
-Text in [square brackets] inside the candidate profile is an unfilled placeholder - ignore it rather than treating its examples as facts.
 
-How to score fit_score (0-100) - be honest and calibrated, most adverts land 20-70:
-- 85-100: graduate/junior software, security or cryptography roles that clearly want someone at this level, or anything using post-quantum / applied cryptography.
-- 65-84: junior/graduate roles in software, data, AI, embedded/hardware, DevOps, QA/test, or security that the candidate could realistically get.
-- 45-64: hands-on computer jobs that are not engineering (IT support, technician, service desk, data entry with automation scope, digital apprenticeships) - these are valuable foot-in-the-door roles where the candidate could automate or improve something and put it on their CV.
-- 20-44: technical but a stretch (wants 3+ years, niche stack) or only loosely computer-related.
-- 0-19: senior/lead roles, non-technical roles, sales/recruitment, or adverts too vague to act on.
-
-Field guidance:
-- advert_title / advert_company / advert_location: the job's real title, hiring employer and work location as the advert states them (search-result titles can be jumbled, e.g. "Company | Job title"). Use the town/city and country if known, "Remote (UK)" for UK-remote, or an empty string if the advert doesn't say. For agencies, the company is the agency unless the client is named.
-- category: the best single bucket. Use "Not-relevant" for non-computer jobs.
-- why: at most two short sentences on why it does or doesn't fit this candidate.
-- cv_angle: one concrete, plausible CV bullet the candidate could earn in this job, in the form "Built/automated X, improving Y by Z" - grounded in what the advert says the team does.
-- seniority_fit: judged from years of experience and title.
-- red_flags: short items, e.g. "commission only", "unpaid", "requires SC clearance", "5+ years", "vague agency advert". Empty list if none.
-- apply_method and apply_steps: how an applicant actually applies for THIS advert given its source site and text (e.g. Indeed apply uses the Indeed profile CV; Gumtree uses the reply form; universities want a supporting statement against the person spec; Civil Service uses Success Profiles behaviour statements; agencies want a CV emailed to the consultant). 2-5 imperative steps.
-- contacts: only emails, phone numbers, named recruiters/hiring managers or contact URLs that literally appear in the advert. Never invent any. Empty list if none.
-- is_remote: true only if the role is fully remote.
-"""
+def scoring_system(settings: AppSettings, profile_text: str) -> str:
+    rubric = settings.llm.scoring_rubric.strip() or DEFAULT_RUBRIC
+    return f"{rubric}\n\n{FIELD_GUIDANCE}\n\n<candidate_profile>\n{profile_text}\n</candidate_profile>"
 
 
 def score_job(settings: AppSettings, profile_text: str, job: dict) -> JobAssessment:
     _spend(settings)
-    system = f"{SCORING_RULES}\n<candidate_profile>\n{profile_text}\n</candidate_profile>"
+    system = scoring_system(settings, profile_text)
     advert = (
         f"<advert source=\"{job['source']}\">\n"
         f"Title: {job['title']}\nCompany: {job['company']}\nLocation: {job['location']}\n"
@@ -137,7 +128,7 @@ def score_job(settings: AppSettings, profile_text: str, job: dict) -> JobAssessm
         max_tokens=1500,
         system=system,
         messages=[{"role": "user", "content": advert}],
-        output_format=JobAssessment,
+        output_format=assessment_model(tuple(categories(settings))),
     )
     if resp.stop_reason == "refusal" or resp.parsed_output is None:
         raise RuntimeError(f"no assessment returned (stop_reason={resp.stop_reason})")
@@ -177,7 +168,7 @@ def draft_cover_note(settings: AppSettings, profile_text: str, job: dict) -> str
         max_tokens=4000,
         output_config={"effort": "medium"},
         system=(
-            "You write short, specific application notes for a new software engineering graduate. "
+            f"You write short, specific application notes for {settings.llm.writer_persona.strip() or DEFAULT_PERSONA}. "
             "Plain British English, no clichés, no invented experience - only use facts from the profile. "
             "Anything in [square brackets] in the profile is an unfilled placeholder, not a fact: never state it "
             "or its examples as true; where it would matter, leave a short [bracketed gap] for the candidate to fill. "

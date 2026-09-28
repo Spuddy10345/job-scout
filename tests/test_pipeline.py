@@ -1,14 +1,24 @@
 from datetime import timedelta
 
+import pytest
 from sqlmodel import select
 
 from app import geo, pipeline
-from app.config import get_settings
+from app.config import Centre, get_settings, save_settings
 from app.db import Job, session, utcnow
 from app.sources import RawJob
 
 CARDIFF = (51.4816, -3.1791)
 LONDON = (51.5072, -0.1276)
+
+
+@pytest.fixture(autouse=True)
+def cardiff_search_area():
+    """Tests use their own search area rather than whatever config/defaults.yaml ships."""
+    s = get_settings()
+    s.search.centres = [Centre(name="Cardiff", lat=CARDIFF[0], lon=CARDIFF[1], radius_mi=25)]
+    s.search.include_remote, s.search.max_age_days = True, 21
+    save_settings(s)
 
 
 def raw(**kw) -> RawJob:
