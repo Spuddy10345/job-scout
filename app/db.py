@@ -72,6 +72,7 @@ class Job(SQLModel, table=True):
     score_hash: str = ""
     scored_at: NaiveDatetime | None = None
     score_attempts: int = 0
+    batch_id: str = Field(default="", index=True)  # set while queued in a Message Batch
 
     company_website: str = ""
     company_linkedin: str = ""
@@ -163,6 +164,8 @@ def _add_missing_columns() -> None:
                 elif isinstance(default, str):
                     ddl += " DEFAULT '" + default.replace("'", "''") + "'"
                 conn.execute(text(ddl))
+            for index in table.indexes:
+                index.create(conn, checkfirst=True)
 
 
 def session() -> Session:

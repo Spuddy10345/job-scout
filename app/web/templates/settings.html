@@ -157,7 +157,10 @@
   <p class="muted">How the AI decides a job's fit score, in plain words. Describe who the candidate is and what each score band means for them - your profile and CV are added after it. The field rules the app relies on are fixed and appended automatically.</p>
   <form hx-post="/settings/prompts" hx-target="find .result">
     <label>Rubric <textarea name="scoring_rubric" rows="12">{{ s.llm.scoring_rubric }}</textarea></label>
-    <label>Application notes are written for <input name="writer_persona" value="{{ s.llm.writer_persona }}" placeholder="a job seeker early in their tech career"></label>
+    <div class="grid-3">
+      <label>Application notes are written for <input name="writer_persona" value="{{ s.llm.writer_persona }}" placeholder="a job seeker early in their tech career"></label>
+      <label>…in <input name="note_language" value="{{ s.llm.note_language }}" placeholder="British English"></label>
+    </div>
     <div class="form-foot"><button class="btn primary">Save rubric</button><span class="result"></span></div>
   </form>
   <form method="post" action="/settings/prompts" data-confirm="Reset the rubric and persona to the built-in defaults?">
@@ -170,12 +173,18 @@
   <h2>AI & budgets</h2>
   <form hx-post="/settings/llm" hx-target="find .result">
     <div class="grid-3">
-      <label>Scoring & extraction model <input name="score_model" value="{{ s.llm.score_model }}"></label>
-      <label>Application-note model <input name="writer_model" value="{{ s.llm.writer_model }}"></label>
+      <label>Scoring & extraction model <input name="score_model" value="{{ s.llm.score_model }}" list="models" autocomplete="off"></label>
+      <label>Application-note model <input name="writer_model" value="{{ s.llm.writer_model }}" list="models" autocomplete="off"></label>
+      <datalist id="models">{% for m in models %}<option value="{{ m }}">{% endfor %}</datalist>
       <label>Max AI calls per day <input type="number" name="daily_limit" value="{{ s.llm.daily_limit }}" min="0"></label>
+      <label>Max AI spend per day <span class="muted">(US$, 0 = no cap)</span><input type="number" name="daily_budget_usd" value="{{ s.llm.daily_budget_usd }}" min="0" step="0.5"></label>
       <label>Max Firecrawl credits per day <input type="number" name="firecrawl_daily_credits" value="{{ s.llm.firecrawl_daily_credits }}" min="0"></label>
+      <label class="check"><input type="checkbox" name="batch_rescore" value="true" {{ 'checked' if s.llm.batch_rescore }}> Re-score all through the Batches API <span class="muted">(half price, results within a few hours)</span></label>
     </div>
-    <p class="muted small">Today: {{ counts.llm_used }} AI calls, {{ counts.fc_used }} Firecrawl credits. Scoring a job with Haiku costs roughly £0.003.</p>
+    <label>Prices <span class="muted">(US$ per million tokens: <code>model: input, output</code> - matched by model-ID prefix; check <a href="https://www.anthropic.com/pricing" target="_blank" rel="noopener noreferrer">anthropic.com/pricing</a>)</span>
+      <textarea name="prices" rows="6" class="mono">{% for m, p in s.llm.prices.items() %}{{ m }}: {{ p[0] }}, {{ p[1] }}
+{% endfor %}</textarea></label>
+    <p class="muted small">Today: {{ counts.llm_used }} AI calls costing ${{ '%.3f'|format(counts.cost_today) }} · this month ${{ '%.2f'|format(counts.cost_month) }} · {{ counts.fc_used }} Firecrawl credits{% if counts.batched %} · {{ counts.batched }} jobs waiting in a batch{% endif %}.</p>
     <div class="form-foot"><button class="btn primary">Save</button><span class="result"></span></div>
   </form>
   <form method="post" action="/settings/reset" data-confirm="Reset every setting to the defaults? Jobs and your CV text are kept, profile notes are reset.">
