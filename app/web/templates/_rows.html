@@ -1,0 +1,29 @@
+  {% for j in jobs %}
+    <tr data-id="{{ j.id }}" class="{{ 'dim' if j.filtered_out or j.status in ['hidden','rejected'] }}" tabindex="0">
+      <td class="c-pick"><input type="checkbox" name="ids" value="{{ j.id }}" form="bulk" aria-label="Select {{ j.title }}"></td>
+      <td class="c-score"><span class="score {{ j.score|score_class }}">{{ j.score if j.score is not none else '…' }}</span></td>
+      <td class="c-role">
+        <div class="role-title">
+          {{ j.title }}
+          {% if since and j.first_seen.isoformat() > since and j.status == 'new' %}<span class="chip new">new</span>{% endif %}
+        </div>
+        <div class="role-sub">
+          {{ j.company or 'Unknown company' }}
+          {% for s in j.sources|map(attribute='source')|unique %}<span class="chip src">{{ SOURCES[s].label if s in SOURCES else s }}</span>{% endfor %}
+        </div>
+        {% if j.filtered_out %}<div class="role-filter">Filtered: {{ j.filter_reason }}</div>{% endif %}
+      </td>
+      <td class="c-where">
+        <div>{{ j.location or '—' }}</div>
+        <div class="muted small">
+          {% if j.remote %}<span class="chip remote">remote</span>{% endif %}
+          {% if j.distance_mi is not none %}{{ j.distance_mi|round|int }} mi · {{ j.nearest_centre }}{% endif %}
+        </div>
+      </td>
+      <td class="c-salary">{% if j.salary_min %}{{ j.salary_min|money }}{% if j.salary_max and j.salary_max != j.salary_min %}–{{ j.salary_max|money }}{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="c-cat">{% if j.category %}<span class="cat {{ cat_class(j.category) }}">{{ j.category }}</span>{% endif %}</td>
+      <td class="c-date muted">{{ j.posted_at|timeago if j.posted_at else '—' }}</td>
+      <td class="c-date muted">{{ j.first_seen|timeago }}</td>
+      <td class="c-status"><span class="status st-{{ j.status }}">{{ j.status }}</span></td>
+    </tr>
+  {% endfor %}

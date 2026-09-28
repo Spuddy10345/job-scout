@@ -1,0 +1,10 @@
+<span id="views" class="views">
+  <select aria-label="Saved views" data-action="open-view">
+    <option value="">Saved views…</option>
+    {% for name, query in views.items() %}<option value="{{ query }}" {{ 'selected' if query == current }}>{{ name }}</option>{% endfor %}
+  </select>
+  <button type="button" class="btn small ghost" data-action="save-view" title="Save the current filters as a view">Save view</button>
+  {% for name, query in views.items() %}{% if query == current %}
+  <button type="button" class="btn small ghost" hx-post="/views/delete" hx-vals='{"name": {{ name|tojson }}}' hx-target="#views" hx-swap="outerHTML" hx-confirm="Delete the view “{{ name }}”?">Delete</button>
+  {% endif %}{% endfor %}
+</span>
