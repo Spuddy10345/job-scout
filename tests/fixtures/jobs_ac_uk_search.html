@@ -17,183 +17,15 @@
     type="font/woff2"
     crossorigin="anonymous">
 
-<script>
-    // Include the following lines to define the gtag() function when
-    // calling this code prior to your gtag.js or Tag Manager snippet
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
 
-    let ad_storage = 'denied'
-    let analytics_storage = 'denied'
-
-    cookies = document.cookie.split(';')
-
-    for (let i = 0; i < cookies.length; i++) {
-        if (cookies[i].includes('CookieControl')) {
-            let cookie = cookies[i]
-            cookie = JSON.parse(cookie.split('=')[1])
-            ad_storage = cookie['optionalCookies']['advertising'] === 'accepted' ? 'granted' : 'denied'
-            analytics_storage = cookie['optionalCookies']['analytics']  === 'accepted' ? 'granted' : 'denied'
-        }
-    }
-
-    // Call the default command before gtag.js or Tag Manager runs to
-    // adjust how the tags operate when they run. Modify the defaults
-    // per your business requirements and prior consent granted/denied, e.g.:
-    gtag('consent', 'default', {
-        'ad_storage': ad_storage,
-        'analytics_storage': analytics_storage
-    });
-</script>
 
 <!-- Google Tag Manager -->
-<script>
-    (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({
-        'gtm.start': new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-        j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-        'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-    })(window,document,'script','dataLayer','GTM-MVCS9TR');
-</script>
+
 <!-- End Google Tag Manager -->
 
 
-<script src="https://cc.cdn.civiccomputing.com/9/cookieControl-9.x.min.js" type="text/javascript"></script>
-<script type="text/javascript">
-    gtag('js', new Date());
-    gtag('config', 'GA_MEASUREMENT_ID');
-    gtag('config', 'AW-CONVERSION_ID');
 
-    const config = {
-        apiKey: 'REDACTED',
-        product: 'PRO_MULTISITE',
-        setInnerHTML: true,
-        text: {
-            intro: 'Some of these cookies are essential, while others help us to improve your experience by providing insights into how the site is being used. For more detailed information about the cookies we use, please see our <a href="/legal/cookie-policy" target="_blank">Cookie policy</a>'
-        },
-        necessaryCookies: [
-            'JOBS_SESSID',
-            'searchCriteria',
-            'searchUri',
-            'lastSavedJob',
-            'savedJobOriginPage',
-            'savedJobAdvertIDs',
-            'CookieControl',
-            'iePopUp',
-            'cookiesession1',
-            'RESTJOBS_SESSID'
-        ],
-        necessaryDescription: 'Necessary cookies enable core functionality such as page navigation and access to secure areas. The website cannot function properly without these cookies, and can only be disabled by changing your browser preferences.',
-        optionalCookies: [
-            {
-                name: 'functional',
-                label: 'Functional Cookies',
-                description: 'These help us to personalise the website to you by remembering your preferences and settings.',
-                cookies: [
-                    'SOCS',
-                    'VISITOR_PRIVACY_METADATA',
-                    '_UserReference'
-                ],
-                onAccept: () => {
-                },
-                onRevoke: () => {
-                }
-            }, {
-                name: 'marketing',
-                label: 'Marketing Cookies',
-                description: 'Marketing cookies help us provide personalised and relevant services or advertising to our website visitors, and to assess the effectiveness of our marketing campaigns.',
-                cookies: [
-                    'sa-user-id',
-                    'sa-user-id-v2',
-                    'sa-user-id-v3',
-                    '_rdt_uuid',
-                    'wd / dpr',
-                    '_sfid_ae94',
-                    '_biz_flagsA',
-                    '_biz_nA',
-                    '_biz_pendingA',
-                    '_biz_uid',
-                    'ar_debug',
-                    '_gcl_au',
-                    '_evga_497c',
-                    'VISITOR_INFO1_LIVE',
-                    'YSC',
-                    '_fbp',
-                    'datr',
-                    'usida',
-                    'li_gc',
-                    'lang',
-                    'lidc',
-                    'bcookie',
-                    'UserMatchHistory',
-                    'AnalyticsSyncHistory',
-                    'muc_ads',
-                    'personalization_id',
-                    'NID',
-                    'MUID',
-                    '_clck',
-                    '_clsk',
-                    'ad-id',
-                    'ad-privacy',
-                    'MSPTC',
-                    'CLID',
-                    'jobseeker-survey_tRaiETqnLgj758hTBazgd08QHVw1Udpw8NOSW9kW3362MrZs1JI3hul2_2BfPNWjLK',
-                    'smcx_0_last_shown_at',
-                    'smcx_460923730_last_shown_at',
-                    '_ttp',
-                    'ttclid',
-                    'ttcsid',
-                    '_qca',
-                    '__spdt'
-                ],
-                onAccept: () => {
-                    gtag('consent', 'update', {ad_storage: 'granted'});
-                    (() => {
-                        if (document.cookie.indexOf("jobseeker-survey_tRaiETqnLgj758hTBazgd08QHVw1Udpw8NOSW9kW3362MrZs1JI3hul2_2BfPNWjLK") === -1) {
-                            (function(t,e,s,o){var n,a,c;t.SMCX=t.SMCX||[],e.getElementById(o)||(n=e.getElementsByTagName(s),a=n[n.length-1],c=e.createElement(s),c.type="text/javascript",c.async=!0,c.id=o,c.src="https://widget.surveymonkey.com/collect/website/js/tRaiETqnLgj758hTBazgd08QHVw1Udpw8NOSW9kW3362MrZs1JI3hul2_2BfPNWjLK.js",a.parentNode.insertBefore(c,a))})(window,document,"script","smcx-sdk");
-                            document.cookie =  "jobseeker-survey_tRaiETqnLgj758hTBazgd08QHVw1Udpw8NOSW9kW3362MrZs1JI3hul2_2BfPNWjLK=jobseeker-survey_tRaiETqnLgj758hTBazgd08QHVw1Udpw8NOSW9kW3362MrZs1JI3hul2_2BfPNWjLK; max-age=1209600; path=/; domain=" + window.location.hostname.replace('www.', '').replace('account.', '') + ";";
-                        }
-                    })();
-                },
-                onRevoke: () => {
-                    gtag('consent', 'update', {ad_storage: 'denied'});
-                    if (document.getElementsByClassName("smcx-widget")) {
-                        for (const i of document.getElementsByClassName("smcx-widget")) {i.remove()};
-                    }
-                    if (document.cookie.indexOf("jobseeker-survey_tRaiETqnLgj758hTBazgd08QHVw1Udpw8NOSW9kW3362MrZs1JI3hul2_2BfPNWjLK") !== -1) {
-                        document.cookie =  "jobseeker-survey_tRaiETqnLgj758hTBazgd08QHVw1Udpw8NOSW9kW3362MrZs1JI3hul2_2BfPNWjLK=; max-age=-1; path=/; domain=" + window.location.hostname.replace('www.', '').replace('account.', '') + ";";
-                    }
-                }
-            }, {
-                name: 'analytics',
-                label: 'Analytics Cookies',
-                description: 'Analytical cookies help us to improve our website by collecting and reporting information on its usage.',
-                cookies: [
-                    'SEARCH_SAMESITE',
-                    '_fs',
-                    '_ga',
-                    '_gid',
-                    '_gat',
-                    '__utma',
-                    '__utmt',
-                    '__utmb',
-                    '__utmc',
-                    '__utmz',
-                    '__utmv',
-                    'mf_user',
-                    'mf_[website-id]'
-                ],
-                onAccept: () => {
-                    gtag('consent', 'update', {analytics_storage: 'granted'});
-                },
-                onRevoke: () => {
-                    gtag('consent', 'update', {analytics_storage: 'denied'});
-                }
-            }
-        ],
-    }
 
-    CookieControl.load(config)
-</script>
     <meta name="keywords" content="jobs, jobs.ac.uk, appointments, vacancies, positions, studentships, graduate, fe jobs, further education, he jobs, school teacher, school jobs, teaching, school, uk, careers, research, postgraduate, faculty, recruitment, professor, lecturer, researcher, postdoctoral, phd, academic, education, science, university, college, chemistry, physics, computing, it, job, biological sciences, medical, contract, employer, employment,  full-time jobs, part-time jobs, hr, human resources, manager, accountancy, employer, employers, situation, vacant, website, permanent, business, sales, jobs in the uk, united kingdom"/>
 
     <meta name="description" content="jobs.ac.uk - Search 1000's of science, research and academic related vacancies in the UK and abroad. Updated daily, easy to use job search and a free Jobs by Email service."/>
@@ -211,15 +43,15 @@
 <!-- scripts -->
 
 
-<script type="application/javascript" src="/search/js/vendor.js?1783435616"></script>
-<script type="application/javascript" src="/search/js/bundle.min.js?1783435615"></script>
+
+
 
 <link rel="stylesheet" href="https://www.jobs.ac.uk/css/responsive.css?1783435819" />
 <link rel="stylesheet" href="/search/css/search.css?1783435611" />
 
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0"/>
 
-<script src="https://hcaptcha.com/1/api.js&amp;render=explicit" async defer></script>
+
 </head>
 <body>
 <div id="container">
@@ -288,19 +120,7 @@
 </nav>
 
     
-    <script type="text/javascript" >
-        var jobAlertToggle = true;
-        var saveJobToggle = '.j-search-result__save-job';
-        var user = {
-            userID: null,
-            loggedIn: false,
-            emailAddress: null,
-            savedJobAdvertIDs: []
-        };
-        var emailAddress = null;
-        var searchUri = 'keywords=software&location=Cardiff&sortOrder=0&pageSize=25&startIndex=1';
-        var searchCriteria = 'a:5:{s:8:&quot;keywords&quot;;s:8:&quot;software&quot;;s:8:&quot;location&quot;;s:7:&quot;Cardiff&quot;;s:8:&quot;pageSize&quot;;i:25;s:10:&quot;startIndex&quot;;i:1;s:19:&quot;locationDisplayName&quot;;s:7:&quot;Cardiff&quot;;}';
-    </script>
+    
 
     <div class="j-tooltip j-tooltip--error" data-trigger='button[name="location-tooltip-trigger"]' data-anchor="#location">
     <p class="j-tooltip__body">
@@ -2278,29 +2098,7 @@
                     </div>
 
             <!-- template for the modal component -->
-<script type="text/x-template" id="modal-template">
-<transition name="modal">
-    <div class="modal-mask">
-        <div class="modal-wrapper">
-            <div class="modal-container">
-                <div>
-                    <a id="job-alert-modal-close-button" class="j-job-alert-modal__close-button" @click="$emit('close')">&times;</a>
-                    <div id="modal-header">
-                    </div>
-                </div>
-                <div class="modal-body">
-                    <form id="saveSearchAsJobAlertCTA" novalidate>
-                        <slot name="body">
-                        </slot>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                </div>
-            </div>
-        </div>
-    </div>
-</transition>
-</script>            <!-- app -->
+            <!-- app -->
             <div id="job-alert-cta">
                 <div id="job-alert-button" class="j-form-input ie-border-left" style="display:;">
                     <i class="j-form-input__button-icon fa fa-envelope white">&nbsp;</i>
@@ -2425,7 +2223,7 @@
                     </label>
                     <input type="hidden" name="searchCriteria" value="a:5:{s:8:&quot;keywords&quot;;s:8:&quot;software&quot;;s:8:&quot;location&quot;;s:7:&quot;Cardiff&quot;;s:8:&quot;pageSize&quot;;i:25;s:10:&quot;startIndex&quot;;i:1;s:19:&quot;locationDisplayName&quot;;s:7:&quot;Cardiff&quot;;}">
                     <input type="hidden" name="searchUri" value="keywords=software&amp;location=Cardiff&amp;sortOrder=0&amp;pageSize=25&amp;startIndex=1">
-                    <div id="h-captcha" data-sitekey="REDACTED"></div>
+                    
                     <div id="captcha-error" class="j-form-input__error grid__1-col--span-2-col row-2"></div>
                     <div id="processingUserData" class="lds-css" v-if="processingUserData">
                         <div class="sml-rolling">
@@ -3658,36 +3456,15 @@
 </div>
 
 <!--  Google+ JavaScript API -->
-<script src="https://apis.google.com/js/platform.js" async defer>
-    {lang: 'en-GB'}
-</script>
+
 
 
     <!-- Google Code for Remarketing Tag -->
-    <script type="text/javascript">
-        /* <![CDATA[ */
-        var google_conversion_id = 1071910598;
-        var google_custom_params = window.google_tag_params;
-        var google_remarketing_only = true;
-        /* ]]> */
-    </script>
-    <script type="text/javascript" src="//www.googleadservices.com/pagead/conversion.js"></script>
-    <noscript>
-        <div style="display:inline;">
-            <img height="1" width="1" style="border-style:none;" alt="" src="//googleads.g.doubleclick.net/pagead/viewthroughconversion/1071910598/?value=0&amp;guid=ON&amp;script=0"/>
-        </div>
-    </noscript>
+    
+    
+    
 
-    <script type="text/javascript">
-    (function () {
-        var ga = document.createElement('script');
-        ga.type = 'text/javascript';
-        ga.async = true;
-        ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
-        var s = document.getElementsByTagName('script')[0];
-        s.parentNode.insertBefore(ga, s);
-    })();
-</script>
+    
 </div>
 <button name="ie11-trigger" type="button" style="display: none;">IE11 Trigger</button>
 <div class="j-modal" data-trigger='button[name="ie11-trigger"]'>
