@@ -14,7 +14,7 @@ from .. import enrich, llm, notify, pages, pipeline, scheduler
 from ..auth import is_local_host, password, password_ok, safe_next
 from ..credentials import env, redact
 from ..config import (AppSettings, Centre, SourceSettings, WatchEntry, cached_settings, categories, currency, get_kv,
-                      get_settings, missing_keys, reset_settings, save_settings, set_kv)
+                      get_settings, missing_keys, reset_settings, save_settings, set_kv, settings_saved)
 from ..prompts import DEFAULT_PERSONA, DEFAULT_RUBRIC
 from ..db import DATA_DIR, STATUSES, Job, JobEvent, SourceRun, session, utcnow
 from ..profile import extract_cv_text, profile_text
@@ -144,7 +144,16 @@ def logout(request: Request):
 
 # ---------------------------------------------------------------- jobs
 
-def _query_jobs(p: dict) -> tuple[list[Job], int]:
+PAGE_SIZE = 100
+NON_FILTER_PARAMS = ("job", "offset", "limit")
+
+
+def filter_params(query_params) -> dict:
+    """The job-list filters from a query string, without paging/drawer state or empty values."""
+    return {k: v for k, v in query_params.items() if v not in ("", None) and k not in NON_FILTER_PARAMS}
+
+
+def _job_filter(p: dict):
     stmt = select(Job)
     if p.get("filtered") == "only":
         stmt = stmt.where(Job.filtered_out == True)  # noqa: E712
@@ -174,25 +183,35 @@ def _query_jobs(p: dict) -> tuple[list[Job], int]:
 
     sort = SORTS.get(p.get("sort") or "score", Job.score)
     desc = (p.get("dir") or ("asc" if p.get("sort") in ("distance", "company", "title") else "desc")) == "desc"
-    order = [sort.is_(None), sort.desc() if desc else sort.asc(), Job.first_seen.desc()]
+    return stmt, [sort.is_(None), sort.desc() if desc else sort.asc(), Job.first_seen.desc(), Job.id.desc()]
+
+
+def _query_jobs(p: dict, offset: int = 0, limit: int = PAGE_SIZE) -> tuple[list[Job], int]:
+    stmt, order = _job_filter(p)
     with session() as s:
         total = s.exec(select(func.count()).select_from(stmt.subquery())).one()
-        limit = int(p["limit"]) if str(p.get("limit", "")).isdigit() else 300
-        rows = s.exec(stmt.order_by(*order).limit(min(max(limit, 1), 1000))).all()
+        rows = s.exec(stmt.order_by(*order).offset(max(offset, 0)).limit(min(max(limit, 1), 5000))).all()
     return list(rows), total
+
+
+def _int(value, default: int = 0) -> int:
+    return int(value) if str(value or "").isdigit() else default
 
 
 @router.get("/", response_class=HTMLResponse)
 def jobs_page(request: Request):
+    if not settings_saved() and not get_kv("setup_done"):
+        return RedirectResponse("/setup", status_code=303)
     prev = get_kv("last_visit")
     since = request.cookies.get("since") or prev
     # a visit more than 30 min after the last one starts a new "since" window
     if not prev or datetime.fromisoformat(prev) < utcnow() - timedelta(minutes=30):
         since = prev
     set_kv("last_visit", utcnow().isoformat())
-    params = dict(request.query_params)
-    rows, total = _query_jobs(params)
-    resp = render(request, "jobs.html", jobs=rows, total=total, p=params, since=since, open_job=params.get("job"))
+    p = filter_params(request.query_params)
+    rows, total = _query_jobs(p)
+    resp = render(request, "jobs.html", jobs=rows, total=total, p=p, since=since, next_offset=len(rows),
+                  open_job=request.query_params.get("job"), views=get_kv("saved_views", {}))
     if since:
         resp.set_cookie("since", since, max_age=1800)
     return resp
@@ -200,11 +219,14 @@ def jobs_page(request: Request):
 
 @router.get("/jobs/table", response_class=HTMLResponse)
 def jobs_table(request: Request):
-    params = {k: v for k, v in request.query_params.items() if v not in ("", None)}
-    rows, total = _query_jobs(params)
-    resp = templates.TemplateResponse(request, "_table.html", {"jobs": rows, "total": total, "p": params,
+    return table_response(request, filter_params(request.query_params))
+
+
+def table_response(request: Request, p: dict) -> HTMLResponse:
+    rows, total = _query_jobs(p)
+    resp = templates.TemplateResponse(request, "_table.html", {"jobs": rows, "total": total, "p": p, "next_offset": len(rows),
                                                                 "since": request.cookies.get("since")})
-    resp.headers["HX-Push-Url"] = "/?" + urlencode(params) if params else "/"
+    resp.headers["HX-Push-Url"] = "/?" + urlencode(p) if p else "/"
     return resp
 
 
@@ -397,7 +419,7 @@ def _remove_cv_files() -> None:
 
 
 @router.post("/settings/cv", response_class=HTMLResponse)
-async def upload_cv(request: Request, cv: UploadFile = File(...)):
+async def upload_cv(request: Request, cv: UploadFile = File(...), next: str = Form("/settings#profile")):
     suffix = Path(cv.filename or "").suffix.lower()
     if suffix not in CV_TYPES:
         return _err("CV must be a PDF, DOCX, Markdown or text file")
@@ -413,7 +435,7 @@ async def upload_cv(request: Request, cv: UploadFile = File(...)):
     s = get_settings()
     s.cv_filename, s.cv_text, s.cv_uploaded = cv.filename or "cv", text, utcnow().strftime("%d %b %Y %H:%M")
     save_settings(s)
-    return RedirectResponse("/settings#profile", status_code=303)
+    return RedirectResponse(safe_next(next), status_code=303)
 
 
 @router.post("/settings/cv/delete")

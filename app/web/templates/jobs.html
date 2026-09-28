@@ -36,6 +36,10 @@
   <input type="hidden" name="sort" id="sort" value="{{ p.sort or 'score' }}">
   <input type="hidden" name="dir" id="dir" value="{{ p.dir or '' }}">
 </form>
+<div class="filters-extra">
+  {% with current = p|urlencode %}{% include "_views.html" %}{% endwith %}
+  <button type="button" class="btn small ghost" data-action="help" title="Keyboard shortcuts">Shortcuts <kbd>?</kbd></button>
+</div>
 
 <section id="table" class="table-wrap">
   {% include "_table.html" %}

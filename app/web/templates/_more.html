@@ -1,0 +1,7 @@
+<div id="load-more" class="load-more"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if next_offset < total %}
+  <button class="btn" hx-get="/jobs/rows?{{ p|urlencode }}&offset={{ next_offset }}" hx-target="#job-rows" hx-swap="beforeend">
+    Load more <span class="muted">({{ total - next_offset }} left)</span>
+  </button>
+  {% endif %}
+</div>

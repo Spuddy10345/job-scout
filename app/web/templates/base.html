@@ -20,6 +20,7 @@
       <a href="/" class="{{ 'on' if path == '/' }}">Jobs</a>
       <a href="/tracker" class="{{ 'on' if path == '/tracker' }}">Tracker</a>
       <a href="/runs" class="{{ 'on' if path == '/runs' }}">Sources</a>
+      <a href="/stats" class="{{ 'on' if path == '/stats' }}">Stats</a>
       <a href="/settings" class="{{ 'on' if path == '/settings' }}">Settings</a>
       {% if auth_enabled %}<form method="post" action="/logout" class="logout"><button class="linkish">Sign out</button></form>{% endif %}
     </nav>
@@ -43,5 +44,19 @@
   <main class="{% block main_class %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>
+  <div id="toasts" class="toasts" aria-live="assertive"></div>
+  <dialog id="help" class="help">
+    <h2>Keyboard shortcuts</h2>
+    <dl>
+      <dt><kbd>j</kbd> / <kbd>k</kbd></dt><dd>Next / previous job</dd>
+      <dt><kbd>Enter</kbd></dt><dd>Open the selected job</dd>
+      <dt><kbd>Esc</kbd></dt><dd>Close the job panel</dd>
+      <dt><kbd>x</kbd></dt><dd>Tick the selected job for bulk actions</dd>
+      <dt><kbd>i</kbd> / <kbd>a</kbd> / <kbd>h</kbd></dt><dd>Mark interested / applied / hide</dd>
+      <dt><kbd>/</kbd></dt><dd>Search</dd>
+      <dt><kbd>?</kbd></dt><dd>This help</dd>
+    </dl>
+    <form method="dialog"><button class="btn">Close</button></form>
+  </dialog>
 </body>
 </html>
