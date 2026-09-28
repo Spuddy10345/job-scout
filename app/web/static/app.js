@@ -11,7 +11,7 @@
     if (!drawer) return;
     htmx.ajax("GET", "/job/" + id, { target: "#drawer" }).then(() => {
       document.body.classList.add("drawer-open");
-      $(".drawer-head .close", drawer)?.focus();
+      $(".drawer-head .close", drawer)?.focus({ preventScroll: true });
     });
     document.querySelectorAll("tr.sel").forEach((r) => r.classList.remove("sel"));
     document.querySelector('tr[data-id="' + id + '"]')?.classList.add("sel");
