@@ -170,7 +170,8 @@ def _query_jobs(p: dict) -> tuple[list[Job], int]:
     order = [sort.is_(None), sort.desc() if desc else sort.asc(), Job.first_seen.desc()]
     with session() as s:
         total = s.exec(select(func.count()).select_from(stmt.subquery())).one()
-        rows = s.exec(stmt.order_by(*order).limit(int(p.get("limit") or 300))).all()
+        limit = int(p["limit"]) if str(p.get("limit", "")).isdigit() else 300
+        rows = s.exec(stmt.order_by(*order).limit(min(max(limit, 1), 1000))).all()
     return list(rows), total
 
 
@@ -304,9 +305,9 @@ def _board_ctx() -> dict:
     cols = ["interested", "applied", "interview", "offer", "rejected"]
     with session() as s:
         jobs = s.exec(select(Job).where(col(Job.status).in_(cols)).order_by(Job.score.desc())).all()
-        last = {}
-        for e in s.exec(select(JobEvent).order_by(JobEvent.at)).all():
-            last[e.job_id] = e
+        latest = (select(JobEvent.job_id, func.max(JobEvent.id).label("id"))
+                  .where(col(JobEvent.job_id).in_([j.id for j in jobs])).group_by(JobEvent.job_id).subquery())
+        last = {e.job_id: e for e in s.exec(select(JobEvent).join(latest, JobEvent.id == latest.c.id)).all()}
     board = {c: [j for j in jobs if j.status == c] for c in cols}
     stale = {j.id for j in board["applied"] if j.id in last and last[j.id].at < utcnow() - timedelta(days=10)}
     return {"board": board, "last": last, "stale": stale}

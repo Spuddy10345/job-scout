@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import date
 
 import httpx
 from selectolax.parser import HTMLParser
 
 from .config import AppSettings, env, get_kv, set_kv
+from .db import utc_today
 from .net import http_client
 
 log = logging.getLogger("jobscout.pages")
@@ -30,12 +30,12 @@ def firecrawl_available() -> bool:
 
 
 def credits_today() -> int:
-    return get_kv("firecrawl_usage", {}).get(date.today().isoformat(), 0)
+    return get_kv("firecrawl_usage", {}).get(utc_today(), 0)
 
 
 def _charge(settings: AppSettings, credits: int) -> None:
     with _credit_lock:
-        today = date.today().isoformat()
+        today = utc_today()
         used = get_kv("firecrawl_usage", {}).get(today, 0)
         if used + credits > settings.llm.firecrawl_daily_credits:
             raise CreditsExceeded(f"Firecrawl daily budget reached ({used}/{settings.llm.firecrawl_daily_credits})")

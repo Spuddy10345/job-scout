@@ -91,3 +91,57 @@ def test_board_jobs_keep_their_own_fields(fake_client):
     j = job()
     pipeline.score_job(j, get_settings(), "profile")
     assert j.title == "Graduate Cryptography Engineer" and j.location == "Cardiff"
+
+
+def _queue_one_job():
+    from app.db import session
+
+    with session() as s:
+        s.add(job())
+        s.commit()
+
+
+def _only_job():
+    from sqlmodel import select
+
+    from app.db import session
+
+    with session() as s:
+        return s.exec(select(Job)).one()
+
+
+def test_outage_leaves_jobs_queued(monkeypatch):
+    import anthropic
+    import httpx2
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    _queue_one_job()
+
+    def boom(*a, **k):
+        raise anthropic.APIConnectionError(request=httpx2.Request("POST", "https://api.anthropic.com"))
+
+    monkeypatch.setattr(llm, "score_job", boom)
+    pipeline.score_pending()
+    j = _only_job()
+    assert j.score is None and j.score_attempts == 0
+
+
+def test_job_that_keeps_failing_is_marked_after_three_attempts(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    _queue_one_job()
+    calls = []
+
+    def bad(*a, **k):
+        calls.append(1)
+        raise RuntimeError("no assessment returned (stop_reason=refusal)")
+
+    monkeypatch.setattr(llm, "score_job", bad)
+    pipeline.score_pending()
+    j = _only_job()
+    assert len(calls) == 3 and j.score == 0 and "refusal" in j.why
+
+
+def test_extraction_cut_off_raises(fake_client):
+    fake_client.parse = lambda **kw: SimpleNamespace(parsed_output=None, stop_reason="max_tokens")
+    with pytest.raises(RuntimeError, match="max_tokens"):
+        llm.extract_jobs(get_settings(), "page", "https://e.com/careers")

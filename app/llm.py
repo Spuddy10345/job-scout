@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import date
 from typing import Literal
 
 import anthropic
 from pydantic import BaseModel
 
 from .config import AppSettings, env, get_kv, set_kv
+from .db import utc_today
 
 log = logging.getLogger("jobscout.llm")
 
@@ -61,6 +61,16 @@ class BudgetExceeded(RuntimeError):
     pass
 
 
+# Failures that say nothing about the job being scored - stop and retry later rather than
+# marking every queued job as failed (a mistyped model name used to zero the whole backlog).
+SYSTEMIC_ERRORS = (
+    anthropic.APIConnectionError, anthropic.RateLimitError, anthropic.InternalServerError,
+    anthropic.OverloadedError, anthropic.ServiceUnavailableError, anthropic.DeadlineExceededError,
+    anthropic.AuthenticationError, anthropic.PermissionDeniedError, anthropic.NotFoundError,
+    anthropic.CredentialsError,
+)
+
+
 _client: anthropic.Anthropic | None = None
 _budget_lock = threading.Lock()
 
@@ -77,12 +87,12 @@ def client() -> anthropic.Anthropic:
 
 
 def usage_today() -> int:
-    return get_kv("llm_usage", {}).get(date.today().isoformat(), 0)
+    return get_kv("llm_usage", {}).get(utc_today(), 0)
 
 
 def _spend(settings: AppSettings) -> None:
     with _budget_lock:
-        today = date.today().isoformat()
+        today = utc_today()
         usage = get_kv("llm_usage", {})
         used = usage.get(today, 0)
         if used >= settings.llm.daily_limit:
@@ -152,7 +162,10 @@ def extract_jobs(settings: AppSettings, page_text: str, page_url: str, hint: str
         messages=[{"role": "user", "content": prompt}],
         output_format=ExtractedJobs,
     )
+    if resp.stop_reason == "max_tokens":
+        raise RuntimeError(f"job extraction cut off at max_tokens for {page_url} - page lists too many jobs")
     if resp.parsed_output is None:
+        log.info("no jobs extracted from %s (stop_reason=%s)", page_url, resp.stop_reason)
         return []
     return resp.parsed_output.jobs
 

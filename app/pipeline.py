@@ -11,7 +11,7 @@ from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy.exc import OperationalError
-from sqlmodel import or_, select
+from sqlmodel import col, or_, select
 
 from . import enrich, geo, llm, notify
 from .config import AppSettings, get_settings, missing_keys
@@ -25,10 +25,13 @@ log = logging.getLogger("jobscout.pipeline")
 _ingest_lock = threading.Lock()
 _score_lock = threading.Lock()
 _source_locks: dict[str, threading.Lock] = {}
+MAX_SCORE_ATTEMPTS = 3
 
 TRACKING = re.compile(r"^(utm_|fbclid|gclid|mc_|ref$|refId|trackingId|src$|source$)", re.I)
 COMPANY_SUFFIX = re.compile(r"\b(ltd|limited|plc|llp|inc|group|holdings|uk|the|co)\b\.?", re.I)
-MONEY = re.compile(r"£\s*(\d+(?:[.,]\d+)*)\s*(k)?", re.I)
+NUM = r"(\d+(?:[.,]\d+)*)"
+# "£25,000 - £30,000", "£28k", "£30-35k", "£30k to 35k" - the second figure's "k" applies to a bare first one.
+MONEY = re.compile(rf"£\s*{NUM}\s*(k)?(?:\s*(?:-|–|—|to)\s*£?\s*{NUM}\s*(k)?)?", re.I)
 
 
 # ---------------------------------------------------------------- normalisation
@@ -58,9 +61,17 @@ def parse_salary(text: str) -> tuple[float | None, float | None]:
     if not text:
         return None, None
     vals = []
-    for num, k in MONEY.findall(text):
-        v = float(num.replace(",", ""))
-        vals.append(v * 1000 if k else v)
+    for a, ak, b, bk in MONEY.findall(text):
+        lo = float(a.replace(",", ""))
+        hi = float(b.replace(",", "")) if b else None
+        if hi is not None:
+            if bk and not ak and lo < 1000:
+                ak = bk
+            if ak and not bk and hi < 1000:
+                bk = ak
+        vals.append(lo * 1000 if ak else lo)
+        if hi is not None:
+            vals.append(hi * 1000 if bk else hi)
     if not vals:
         return None, None
     t = text.lower()
@@ -93,9 +104,12 @@ def apply_filters(job: Job, settings: AppSettings) -> None:
         job.nearest_centre = centre.name if centre else None
         job.distance_mi = round(d, 1) if d is not None else None
         within = any(geo.haversine_mi(job.lat, job.lon, c.lat, c.lon) <= c.radius_mi for c in sch.centres)
-        if not within and not job.remote:
-            reason = f"outside search area ({job.distance_mi:.0f} mi from {job.nearest_centre})"
-    if job.remote and not sch.include_remote and job.lat is None:
+        if not within:
+            if not job.remote:
+                reason = f"outside search area ({job.distance_mi:.0f} mi from {job.nearest_centre})"
+            elif not sch.include_remote:
+                reason = "remote roles switched off"
+    elif job.remote and not sch.include_remote:
         reason = "remote roles switched off"
 
     if not reason:
@@ -215,6 +229,7 @@ def score_job(job: Job, settings: AppSettings, profile: str) -> None:
     job.remote = job.remote or a.is_remote
     job.score_hash = _score_hash(job, profile)
     job.scored_at = utcnow()
+    job.score_attempts = 0
 
 
 def score_pending(settings: AppSettings | None = None, max_jobs: int = 500) -> int:
@@ -232,7 +247,8 @@ def score_pending(settings: AppSettings | None = None, max_jobs: int = 500) -> i
                 job = s.exec(
                     select(Job)
                     .where(Job.score == None, Job.filtered_out == False, Job.status != "hidden")  # noqa: E711,E712
-                    .order_by(Job.distance_mi == None, Job.distance_mi, Job.first_seen.desc())  # noqa: E711
+                    .order_by(Job.score_attempts, Job.distance_mi == None, Job.distance_mi,  # noqa: E711
+                              Job.first_seen.desc())
                 ).first()
                 if job is None:
                     break
@@ -246,9 +262,15 @@ def score_pending(settings: AppSettings | None = None, max_jobs: int = 500) -> i
                 except llm.BudgetExceeded as e:
                     log.info("%s", e)
                     break
+                except llm.SYSTEMIC_ERRORS as e:
+                    # outage, rate limit, bad key or model name: not this job's fault - leave it queued
+                    log.warning("scoring paused: %s", redact(str(e)))
+                    break
                 except Exception as e:
-                    log.warning("scoring job %s failed: %s", job.id, e)
-                    job.score, job.why = 0, f"(scoring failed: {redact(str(e))})"
+                    log.warning("scoring job %s failed: %s", job.id, redact(str(e)))
+                    job.score_attempts += 1
+                    if job.score_attempts >= MAX_SCORE_ATTEMPTS:
+                        job.score, job.why = 0, f"(scoring failed: {redact(str(e))})"
                 s.add(job)
                 try:
                     s.commit()
@@ -266,8 +288,9 @@ def score_pending(settings: AppSettings | None = None, max_jobs: int = 500) -> i
 
 def rescore_all() -> int:
     with session() as s:
-        for job in s.exec(select(Job).where(Job.filtered_out == False)).all():  # noqa: E712
-            job.score = None
+        active = select(Job).where(Job.filtered_out == False, col(Job.status).not_in(["hidden", "rejected"]))  # noqa: E712
+        for job in s.exec(active).all():
+            job.score, job.score_attempts = None, 0
             s.add(job)
         s.commit()
     return score_pending()
