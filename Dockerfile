@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Job Scout - multi-arch (amd64 / arm64, e.g. Raspberry Pi 4/5) image.
 
-FROM python:3.13-slim AS build
+FROM python:3.14-slim AS build
 COPY --from=ghcr.io/astral-sh/uv:0.12.19 /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0
 WORKDIR /app
@@ -11,7 +11,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-dev --no-install-project
 
-FROM python:3.13-slim
+FROM python:3.14-slim
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Job Scout" \
       org.opencontainers.image.description="Self-hosted job finder with AI scoring and an application tracker" \
